@@ -12,6 +12,7 @@ export class RadioEngine {
     this.ffmpeg = null;
     this.isSkipping = false;
     this.currentSong = null;
+    this.metaListeners = new Set();
 
     this.loadQueue();
     this.waitForSongsAndStart();
@@ -67,6 +68,8 @@ export class RadioEngine {
     this.ffmpeg.on("exit", () => {
       this.handleSongEnd();
     });
+
+    this.emitMeta();
   }
 
   getMeta() {
@@ -75,6 +78,17 @@ export class RadioEngine {
       index: this.index,
       total: this.queue.length
     };
+  }
+
+  onMetaUpdate(fn) {
+    this.metaListeners.add(fn);
+  }
+
+  emitMeta() {
+    const meta = this.getMeta();
+    for (const fn of this.metaListeners) {
+      fn(meta);
+    }
   }
 
   handleSongEnd() {
@@ -94,6 +108,7 @@ export class RadioEngine {
     console.log("Skip requested");
     this.isSkipping = true;
     this.ffmpeg.kill("SIGKILL");
+    this.emitMeta();
   }
 
   addClient(res) {
