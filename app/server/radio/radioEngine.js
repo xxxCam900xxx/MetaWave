@@ -20,6 +20,7 @@ export class RadioEngine {
 
   waitForSongsAndStart() {
     if (this.queue.length === 0) {
+      console.log("Keine Songs gefunden, warte auf neue Lieder...");
       setTimeout(() => {
         this.loadQueue();
         this.waitForSongsAndStart();
@@ -35,6 +36,7 @@ export class RadioEngine {
 
     this.queue = this.shuffle(files);
     this.index = 0;
+    console.log("Queue geladen:", this.queue);
   }
 
   shuffle(arr) {
@@ -46,6 +48,8 @@ export class RadioEngine {
   }
 
   playCurrent() {
+    if (this.queue.length === 0) return;
+
     const song = this.queue[this.index];
     this.currentSong = song;
     console.log("Now playing:", song);
@@ -61,15 +65,45 @@ export class RadioEngine {
 
     this.ffmpeg.stdout.on("data", chunk => {
       for (const client of this.clients) {
-        client.write(chunk);
+        try { client.write(chunk); } catch {}
       }
     });
 
     this.ffmpeg.on("exit", () => {
-      this.handleSongEnd();
+      if (!this.isSkipping) {
+        this.handleSongEnd();
+      }
     });
 
     this.emitMeta();
+  }
+
+  handleSongEnd() {
+    this.index++;
+
+    if (this.index >= this.queue.length) {
+      this.loadQueue();
+    }
+
+    if (this.queue.length > 0) {
+      this.playCurrent();
+    } else {
+      console.log("Keine Songs gefunden, warte auf neue Lieder...");
+      setTimeout(() => this.waitForSongsAndStart(), 2000);
+    }
+  }
+
+  skip() {
+    if (!this.ffmpeg) return;
+
+    console.log("Skip requested");
+    this.isSkipping = true;
+
+    this.ffmpeg.once("exit", () => {
+      this.playCurrent();
+    });
+
+    this.ffmpeg.kill("SIGINT");
   }
 
   getMeta() {
@@ -87,28 +121,8 @@ export class RadioEngine {
   emitMeta() {
     const meta = this.getMeta();
     for (const fn of this.metaListeners) {
-      fn(meta);
+      try { fn(meta); } catch {}
     }
-  }
-
-  handleSongEnd() {
-    // Song ist zu Ende oder bewusst geskippt
-    this.index++;
-
-    if (this.index >= this.queue.length) {
-      this.loadQueue();
-    }
-
-    this.playCurrent();
-  }
-
-  skip() {
-    if (!this.ffmpeg) return;
-
-    console.log("Skip requested");
-    this.isSkipping = true;
-    this.ffmpeg.kill("SIGKILL");
-    this.emitMeta();
   }
 
   addClient(res) {

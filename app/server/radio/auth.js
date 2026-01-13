@@ -5,9 +5,15 @@ const codes = JSON.parse(
 );
 
 export function authMiddleware(req, res, next) {
-  const code = req.header("X-METAWAVE-CODE");
+  const code = req.header("X-METAWAVE-CODE") || req.query.token;
 
-  if (!code || !codes.active.includes(code)) {
+  // Cleanup abgelaufene Tokens
+  const now = Date.now();
+  for (const [t, exp] of Object.entries(codes.tokens)) {
+    if (exp < now) delete codes.tokens[t];
+  }
+
+  if (!code || !(codes.active.includes(code) || codes.tokens[code])) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
