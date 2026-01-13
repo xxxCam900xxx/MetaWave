@@ -7,7 +7,7 @@ WORKDIR /app
 COPY app/server/radio/package.json .
 RUN npm install
 
-COPY app/server/radio/server.js .
+COPY app/server/radio .
 
 VOLUME ["/songs"]
 

@@ -8,8 +8,8 @@ services:
     volumes:
       - songs:/songs
     environment:
-      PLAYLIST_URL: "https://www.youtube.com/playlist?list=PLYfrfvAfnsDm4IPhzTXlQK0sBeYk6Z_eb"
-    profiles: ["manual"]
+      PLAYLIST_URL: "https://www.youtube.com/playlist?list=PLYfrfvAfnsDnKbAvlaQzHTxwToq0m5jMj"
+    restart: "no"
 
   radio:
     build:
@@ -19,6 +19,10 @@ services:
       - songs:/songs
     ports:
       - "8000:8000"
+    depends_on:
+      downloader:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
 volumes:
   songs:
