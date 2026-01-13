@@ -11,6 +11,7 @@ export class RadioEngine {
     this.index = 0;
     this.ffmpeg = null;
     this.isSkipping = false;
+    this.currentSong = null;
 
     this.loadQueue();
     this.waitForSongsAndStart();
@@ -45,6 +46,7 @@ export class RadioEngine {
 
   playCurrent() {
     const song = this.queue[this.index];
+    this.currentSong = song;
     console.log("Now playing:", song);
 
     this.isSkipping = false;
@@ -65,6 +67,14 @@ export class RadioEngine {
     this.ffmpeg.on("exit", () => {
       this.handleSongEnd();
     });
+  }
+
+  getMeta() {
+    return {
+      song: this.currentSong,
+      index: this.index,
+      total: this.queue.length
+    };
   }
 
   handleSongEnd() {

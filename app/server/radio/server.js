@@ -1,8 +1,12 @@
 import express from "express";
 import { RadioEngine } from "./radioEngine.js";
+import { authMiddleware } from "./auth.js";
 
 const app = express();
 const radio = new RadioEngine();
+
+// ALLES schützen
+app.use(authMiddleware);
 
 app.get("/stream", (req, res) => {
   res.setHeader("Content-Type", "audio/mpeg");
@@ -15,8 +19,8 @@ app.post("/skip", (req, res) => {
   res.json({ status: "skipped" });
 });
 
-app.get("/health", (_, res) => {
-  res.json({ status: "ok" });
+app.get("/meta", (req, res) => {
+  res.json(radio.getMeta());
 });
 
 app.listen(8000, () => {
