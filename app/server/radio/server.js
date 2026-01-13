@@ -1,27 +1,22 @@
 import express from "express";
-import { spawn } from "child_process";
-import fs from "fs";
-import path from "path";
+import { RadioEngine } from "./radioEngine.js";
 
 const app = express();
-const SONGS_DIR = "/songs";
-
-function getRandomSong() {
-  const files = fs.readdirSync(SONGS_DIR).filter(f => f.endsWith(".mp3"));
-  return files[Math.floor(Math.random() * files.length)];
-}
+const radio = new RadioEngine();
 
 app.get("/stream", (req, res) => {
   res.setHeader("Content-Type", "audio/mpeg");
+  res.setHeader("Cache-Control", "no-cache");
+  radio.addClient(res);
+});
 
-  const song = getRandomSong();
-  const ffmpeg = spawn("ffmpeg", [
-    "-i", path.join(SONGS_DIR, song),
-    "-f", "mp3",
-    "-"
-  ]);
+app.post("/skip", (req, res) => {
+  radio.skip();
+  res.json({ status: "skipped" });
+});
 
-  ffmpeg.stdout.pipe(res);
+app.get("/health", (_, res) => {
+  res.json({ status: "ok" });
 });
 
 app.listen(8000, () => {
