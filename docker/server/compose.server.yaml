@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  downloader:
+    build:
+      context: ../..
+      dockerfile: docker/server/dockerfile.downloader
+    volumes:
+      - songs:/songs
+    environment:
+      PLAYLIST_URL: "https://www.youtube.com/playlist?list=PLYfrfvAfnsDm4IPhzTXlQK0sBeYk6Z_eb"
+    profiles: ["manual"]
+
+  radio:
+    build:
+      context: ../..
+      dockerfile: docker/server/dockerfile.radio
+    volumes:
+      - songs:/songs
+    ports:
+      - "8000:8000"
+
+volumes:
+  songs:

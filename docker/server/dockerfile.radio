@@ -1,0 +1,16 @@
+FROM node:20-slim
+
+RUN apt-get update && apt-get install -y ffmpeg
+
+WORKDIR /app
+
+COPY app/server/radio/package.json .
+RUN npm install
+
+COPY app/server/radio/server.js .
+
+VOLUME ["/songs"]
+
+EXPOSE 8000
+
+CMD ["node", "server.js"]
