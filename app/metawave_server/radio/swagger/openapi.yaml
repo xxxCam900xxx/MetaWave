@@ -1,0 +1,58 @@
+openapi: 3.0.0
+info:
+  title: MetaWave Live Radio API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000
+components:
+  securitySchemes:
+    BearerToken:
+      type: apiKey
+      name: X-METAWAVE-TOKEN
+      in: header
+paths:
+  /login:
+    get:
+      summary: Login mit Monatscode
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token erfolgreich
+        '401':
+          description: Ungültiger Code
+      security: []  # login braucht keine Auth
+  /stream:
+    get:
+      summary: Live Radio Stream
+      responses:
+        '200':
+          description: Stream verfügbar
+        '401':
+          description: Token ungültig
+      security:
+        - BearerToken: []
+  /skip:
+    post:
+      summary: Song überspringen
+      responses:
+        '200':
+          description: Song übersprungen
+        '401':
+          description: Token ungültig
+      security:
+        - BearerToken: []
+  /meta:
+    get:
+      summary: Aktuelle Song-Informationen
+      responses:
+        '200':
+          description: Meta-Daten
+        '401':
+          description: Token ungültig
+      security:
+        - BearerToken: []

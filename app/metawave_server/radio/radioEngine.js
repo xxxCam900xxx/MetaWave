@@ -1,77 +1,60 @@
 import fs from "fs";
 import path from "path";
 import { spawn } from "child_process";
+import EventEmitter from "events";
 
 const SONGS_DIR = path.resolve("/songs");
 
-export class RadioEngine {
+export class RadioEngine extends EventEmitter {
   constructor() {
-    this.clients = new Set();
+    super();
     this.queue = [];
-    this.index = 0;
-    this.ffmpeg = null;
-    this.metaListeners = new Set();
-    this.currentSong = null;
-
+    this.currentIndex = 0;
+    this.currentProcess = null;
+    this.clients = new Set();
     this.loadQueue();
-    this.waitForSongsAndStart();
-  }
-
-  waitForSongsAndStart() {
-    if (!this.queue.length) {
-      setTimeout(() => {
-        this.loadQueue();
-        this.waitForSongsAndStart();
-      }, 2000);
-      return;
-    }
-    this.playCurrent();
+    this.playNext();
   }
 
   loadQueue() {
     const files = fs.readdirSync(SONGS_DIR).filter(f => f.endsWith(".mp3"));
-    if (!files.length) return;
-    this.queue = this.shuffle(files);
-    this.index = 0;
-    console.log("Queue geladen:", this.queue);
+    this.queue = files;
+    console.log("Queue loaded:", this.queue);
   }
 
-  shuffle(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
+  playNext() {
+    if (!this.queue.length) {
+      setTimeout(() => this.playNext(), 2000);
+      return;
     }
-    return arr;
-  }
 
-  playCurrent() {
-    if (!this.queue.length) return;
-    const song = this.queue[this.index];
-    this.currentSong = song;
+    const song = this.queue[this.currentIndex];
     console.log("Now playing:", song);
+    this.emit("meta", this.getMeta());
 
-    this.ffmpeg = spawn("ffmpeg", ["-re", "-i", path.join(SONGS_DIR, song), "-f", "mp3", "-"]);
+    const ffmpegArgs = [
+      "-re",
+      "-i", path.join(SONGS_DIR, song),
+      "-f", "mp3",
+      "-b:a", "128k",
+      "-content_type", "audio/mpeg",
+      "pipe:1"
+    ];
 
-    this.ffmpeg.stdout.on("data", chunk => {
-      for (const client of this.clients) client.write(chunk);
+    this.currentProcess = spawn("ffmpeg", ffmpegArgs);
+
+    this.currentProcess.stdout.on("data", chunk => {
+      for (const res of this.clients) {
+        res.write(chunk);
+      }
     });
 
-    this.ffmpeg.on("exit", () => this.handleSongEnd());
+    this.currentProcess.stderr.on("data", chunk => {});
 
-    this.emitMeta();
-  }
-
-  handleSongEnd() {
-    this.index++;
-    if (this.index >= this.queue.length) this.loadQueue();
-    this.playCurrent();
-  }
-
-  skip() {
-    if (!this.ffmpeg) return;
-    console.log("Skip requested");
-    this.ffmpeg.kill("SIGKILL");
-    this.emitMeta();
+    this.currentProcess.on("exit", () => {
+      this.currentIndex = (this.currentIndex + 1) % this.queue.length;
+      this.playNext();
+    });
   }
 
   addClient(res) {
@@ -79,20 +62,18 @@ export class RadioEngine {
     res.on("close", () => this.clients.delete(res));
   }
 
+  skip() {
+    if (this.currentProcess) {
+      console.log("Skip requested");
+      this.currentProcess.kill("SIGKILL");
+    }
+  }
+
   getMeta() {
     return {
-      song: this.currentSong,
-      index: this.index,
+      song: this.queue[this.currentIndex],
+      index: this.currentIndex,
       total: this.queue.length
     };
-  }
-
-  onMetaUpdate(fn) {
-    this.metaListeners.add(fn);
-  }
-
-  emitMeta() {
-    const meta = this.getMeta();
-    for (const fn of this.metaListeners) fn(meta);
   }
 }

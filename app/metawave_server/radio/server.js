@@ -1,44 +1,42 @@
 import express from "express";
 import http from "http";
+import cors from "cors";
 import { RadioEngine } from "./radioEngine.js";
-import { authMiddleware, TOKENS, TOKEN_EXPIRY } from "./auth.js";
-import { setupSwagger } from "./swagger.js";
-import { initWebSocket } from "./ws.js";
+import { login, authMiddleware } from "./auth/auth.js";
+import { setupSwagger } from "./swagger/swagger.js";
+// Optional: WebSocket für Live-Meta
+// import { initWebSocket } from "./websocket/ws.js";
 
 const app = express();
-const radio = new RadioEngine();
 const server = http.createServer(app);
+const radio = new RadioEngine();
 
+app.use(cors());
 app.use(express.json());
 
-/* =======================
-   SWAGGER – OHNE AUTH
-======================= */
-setupSwagger(app);
-
-/* =======================
-   PUBLIC ENDPOINTS
-======================= */
+/* ==========================
+   Redirect / -> /swagger
+========================== */
 app.get("/", (req, res) => res.redirect("/swagger"));
 
-app.get("/health", (req, res) => res.json({ status: "ok" }));
+/* ==========================
+   Swagger UI
+========================== */
+setupSwagger(app);
 
-app.post("/generate-token", (req, res) => {
-  const token = Math.random().toString(16).substring(2, 10).toUpperCase();
-  TOKENS.set(token, { expiresAt: Date.now() + TOKEN_EXPIRY });
-  res.json({ token, expiresIn: TOKEN_EXPIRY / 1000 }); // in Sekunden
-});
+/* ==========================
+   Auth
+========================== */
+app.get("/login", login); // /login?code=XXXX
 
-/* =======================
-   AUTH AB HIER
-======================= */
+/* ==========================
+   Protected Radio Endpoints
+========================== */
 app.use(authMiddleware);
 
-/* =======================
-   RADIO ENDPOINTS
-======================= */
 app.get("/stream", (req, res) => {
   res.setHeader("Content-Type", "audio/mpeg");
+  res.setHeader("Cache-Control", "no-cache");
   radio.addClient(res);
 });
 
@@ -47,18 +45,18 @@ app.post("/skip", (req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/meta", (req, res) => {
-  res.json(radio.getMeta());
-});
+app.get("/meta", (req, res) => res.json(radio.getMeta()));
 
-/* =======================
-   WEBSOCKET SERVER
-======================= */
-initWebSocket(server, radio);
+/* ==========================
+   WebSocket (optional)
+========================== */
+// initWebSocket(server, radio);
 
-/* =======================
-   SERVER START
-======================= */
-server.listen(8000, () => {
-  console.log("MetaWave Radio läuft auf Port 8000");
+/* ==========================
+   Server Start
+========================== */
+const PORT = 8000;
+server.listen(PORT, () => {
+  console.log(`MetaWave Live Radio läuft auf Port ${PORT}`);
+  console.log(`Swagger UI: http://localhost:${PORT}/swagger`);
 });
