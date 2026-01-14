@@ -1,4 +1,4 @@
-FROM node:20-slim
+FROM node:20-bullseye
 
 RUN apt-get update && apt-get install -y ffmpeg
 
@@ -9,8 +9,10 @@ RUN npm install
 
 COPY app/metawave_server/radio .
 
+RUN npm install -g ngrok
+
 VOLUME ["/songs"]
 
 EXPOSE 8000
 
-CMD ["node", "server.js"]
+CMD ["bash", "start.sh"]
