@@ -1,9 +1,10 @@
 import swaggerUi from "swagger-ui-express";
-import YAML from "yamljs";
+import fs from "fs";
+import yaml from "js-yaml";
+import path from "path";
 
 export function setupSwagger(app) {
-  const swaggerDoc = YAML.load("./openapi.yaml");
-
-  app.use("/swagger", swaggerUi.serve, swaggerUi.setup(swaggerDoc));
-  app.get("/openapi.json", (req, res) => res.json(swaggerDoc));
+  const filePath = path.resolve("./openapi.yaml");
+  const swaggerDocument = yaml.load(fs.readFileSync(filePath, "utf8"));
+  app.use("/swagger", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 }

@@ -1,70 +1,93 @@
 openapi: 3.0.3
 info:
   title: MetaWave Radio API
-  version: 0.5.0
-
+  version: 0.6.0
 servers:
   - url: http://localhost:8000
 
 components:
   securitySchemes:
-    MetaWaveAuth:
+    MetaWaveToken:
       type: apiKey
       in: header
-      name: X-METAWAVE-CODE
-
-security:
-  - MetaWaveAuth: []
+      name: X-METAWAVE-TOKEN
 
 paths:
-
   /health:
     get:
       summary: Health check
-      security: []
       responses:
         "200":
           description: OK
 
   /generate-token:
     post:
-      summary: Generate access token
-      security: []
+      summary: Generiert einen temporären Token
       responses:
         "200":
-          description: Token created
-
-  /qr/{token}:
-    get:
-      summary: QR code for token
-      security: []
-      parameters:
-        - name: token
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: QR image
+          description: Token erzeugt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  expiresIn:
+                    type: integer
 
   /stream:
     get:
-      summary: Audio stream
+      summary: Liefert den Endlos-Radio-Stream
+      description: Audio Stream (extern testen)
+      security:
+        - MetaWaveToken: []
       responses:
         "200":
-          description: MP3 stream
+          description: Stream gestartet
 
   /meta:
     get:
-      summary: Current song metadata
+      summary: Liefert Song Meta
+      security:
+        - MetaWaveToken: []
       responses:
         "200":
-          description: Meta info
+          description: Meta-Daten des aktuellen Songs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  song:
+                    type: string
+                  index:
+                    type: integer
+                  total:
+                    type: integer
 
   /skip:
     post:
-      summary: Skip current song
+      summary: Überspringt das aktuelle Lied
+      security:
+        - MetaWaveToken: []
       responses:
         "200":
-          description: Skipped
+          description: Song übersprungen
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+
+  /ws:
+    get:
+      summary: WebSocket Endpoint
+      description: ws://host:8000/ws?code=TOKEN
+      security:
+        - MetaWaveToken: []
+      responses:
+        "101":
+          description: WebSocket Verbindung hergestellt

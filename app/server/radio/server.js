@@ -1,13 +1,13 @@
 import express from "express";
-import fs from "fs";
-import QRCode from "qrcode";
-
+import http from "http";
 import { RadioEngine } from "./radioEngine.js";
-import { authMiddleware } from "./auth.js";
+import { authMiddleware, TOKENS } from "./auth.js";
 import { setupSwagger } from "./swagger.js";
+import { initWebSocket } from "./ws.js";
 
 const app = express();
 const radio = new RadioEngine();
+const server = http.createServer(app);
 
 app.use(express.json());
 
@@ -19,23 +19,15 @@ setupSwagger(app);
 /* =======================
    PUBLIC ENDPOINTS
 ======================= */
+app.get("/", (req, res) => res.redirect("/swagger"));
 
-app.get("/", (req, res) => {
-  res.redirect("/swagger");
-})
-
-app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
-});
+app.get("/health", (req, res) => res.json({ status: "ok" }));
 
 app.post("/generate-token", (req, res) => {
   const token = Math.random().toString(16).substring(2, 10).toUpperCase();
-  res.json({ token });
-});
-
-app.get("/qr/:token", async (req, res) => {
-  const qr = await QRCode.toDataURL(req.params.token);
-  res.type("html").send(`<img src="${qr}" />`);
+  const expiresIn = 15 * 60 * 1000; // 15 Minuten
+  TOKENS.set(token, Date.now() + expiresIn);
+  res.json({ token, expiresIn: 15 * 60 });
 });
 
 /* =======================
@@ -46,7 +38,6 @@ app.use(authMiddleware);
 /* =======================
    RADIO ENDPOINTS
 ======================= */
-
 app.get("/stream", (req, res) => {
   res.setHeader("Content-Type", "audio/mpeg");
   radio.addClient(res);
@@ -61,6 +52,14 @@ app.get("/meta", (req, res) => {
   res.json(radio.getMeta());
 });
 
-app.listen(8000, () => {
+/* =======================
+   WEBSOCKET SERVER
+======================= */
+initWebSocket(server, radio);
+
+/* =======================
+   SERVER START
+======================= */
+server.listen(8000, () => {
   console.log("MetaWave Radio läuft auf Port 8000");
 });
