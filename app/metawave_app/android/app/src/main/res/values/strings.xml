@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MetaWave</string>
+    <string name="title_activity_main">MetaWave</string>
+    <string name="package_name">metawave.timofej.ch</string>
+    <string name="custom_url_scheme">metawave.timofej.ch</string>
+</resources>
