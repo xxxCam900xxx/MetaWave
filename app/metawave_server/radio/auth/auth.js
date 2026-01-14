@@ -1,5 +1,4 @@
 import { getMonthlyCode } from "./codeGenerator.js";
-console.log(getMonthlyCode());
 
 export const TOKEN_EXPIRY = 15 * 60 * 1000;
 export const TOKENS = new Map();
@@ -34,4 +33,8 @@ export function authMiddleware(req, res, next) {
   TOKENS.set(token, tokenData);
 
   next();
+}
+
+export function currentcode() {
+  return getMonthlyCode();
 }

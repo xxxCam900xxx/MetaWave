@@ -2,7 +2,7 @@ import express from "express";
 import http from "http";
 import cors from "cors";
 import { RadioEngine } from "./radioEngine.js";
-import { login, authMiddleware } from "./auth/auth.js";
+import { login, authMiddleware, currentcode } from "./auth/auth.js";
 import { setupSwagger } from "./swagger/swagger.js";
 // Optional: WebSocket für Live-Meta
 // import { initWebSocket } from "./websocket/ws.js";
@@ -59,4 +59,5 @@ const PORT = 8000;
 server.listen(PORT, () => {
   console.log(`MetaWave Live Radio läuft auf Port ${PORT}`);
   console.log(`Swagger UI: http://localhost:${PORT}/swagger`);
+  console.log(`Aktueller MetaWave Code: ${currentcode()}`);
 });
