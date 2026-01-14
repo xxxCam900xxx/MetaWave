@@ -10,24 +10,10 @@ export class RadioEngine {
     this.queue = [];
     this.index = 0;
     this.ffmpeg = null;
-    this.isSkipping = false;
     this.currentSong = null;
-    this.metaListeners = new Set();
 
     this.loadQueue();
     this.waitForSongsAndStart();
-  }
-
-  waitForSongsAndStart() {
-    if (this.queue.length === 0) {
-      console.log("Keine Songs gefunden, warte auf neue Lieder...");
-      setTimeout(() => {
-        this.loadQueue();
-        this.waitForSongsAndStart();
-      }, 2000);
-      return;
-    }
-    this.playCurrent();
   }
 
   loadQueue() {
@@ -36,6 +22,7 @@ export class RadioEngine {
 
     this.queue = this.shuffle(files);
     this.index = 0;
+
     console.log("Queue geladen:", this.queue);
   }
 
@@ -47,14 +34,22 @@ export class RadioEngine {
     return arr;
   }
 
-  playCurrent() {
-    if (this.queue.length === 0) return;
+  waitForSongsAndStart() {
+    if (this.queue.length === 0) {
+      setTimeout(() => {
+        this.loadQueue();
+        this.waitForSongsAndStart();
+      }, 2000);
+      return;
+    }
+    this.playCurrent();
+  }
 
+  playCurrent() {
     const song = this.queue[this.index];
     this.currentSong = song;
-    console.log("Now playing:", song);
 
-    this.isSkipping = false;
+    console.log("Now playing:", song);
 
     this.ffmpeg = spawn("ffmpeg", [
       "-re",
@@ -65,45 +60,29 @@ export class RadioEngine {
 
     this.ffmpeg.stdout.on("data", chunk => {
       for (const client of this.clients) {
-        try { client.write(chunk); } catch {}
+        client.write(chunk);
       }
     });
 
-    this.ffmpeg.on("exit", () => {
-      if (!this.isSkipping) {
-        this.handleSongEnd();
-      }
-    });
-
-    this.emitMeta();
+    this.ffmpeg.on("exit", () => this.next());
   }
 
-  handleSongEnd() {
+  next() {
     this.index++;
-
-    if (this.index >= this.queue.length) {
-      this.loadQueue();
-    }
-
-    if (this.queue.length > 0) {
-      this.playCurrent();
-    } else {
-      console.log("Keine Songs gefunden, warte auf neue Lieder...");
-      setTimeout(() => this.waitForSongsAndStart(), 2000);
-    }
+    if (this.index >= this.queue.length) this.loadQueue();
+    this.playCurrent();
   }
 
   skip() {
-    if (!this.ffmpeg) return;
+    if (this.ffmpeg) {
+      console.log("Skip requested");
+      this.ffmpeg.kill("SIGKILL");
+    }
+  }
 
-    console.log("Skip requested");
-    this.isSkipping = true;
-
-    this.ffmpeg.once("exit", () => {
-      this.playCurrent();
-    });
-
-    this.ffmpeg.kill("SIGINT");
+  addClient(res) {
+    this.clients.add(res);
+    res.on("close", () => this.clients.delete(res));
   }
 
   getMeta() {
@@ -112,23 +91,5 @@ export class RadioEngine {
       index: this.index,
       total: this.queue.length
     };
-  }
-
-  onMetaUpdate(fn) {
-    this.metaListeners.add(fn);
-  }
-
-  emitMeta() {
-    const meta = this.getMeta();
-    for (const fn of this.metaListeners) {
-      try { fn(meta); } catch {}
-    }
-  }
-
-  addClient(res) {
-    this.clients.add(res);
-    res.on("close", () => {
-      this.clients.delete(res);
-    });
   }
 }

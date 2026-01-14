@@ -1,0 +1,70 @@
+openapi: 3.0.3
+info:
+  title: MetaWave Radio API
+  version: 0.5.0
+
+servers:
+  - url: http://localhost:8000
+
+components:
+  securitySchemes:
+    MetaWaveAuth:
+      type: apiKey
+      in: header
+      name: X-METAWAVE-CODE
+
+security:
+  - MetaWaveAuth: []
+
+paths:
+
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: OK
+
+  /generate-token:
+    post:
+      summary: Generate access token
+      security: []
+      responses:
+        "200":
+          description: Token created
+
+  /qr/{token}:
+    get:
+      summary: QR code for token
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: QR image
+
+  /stream:
+    get:
+      summary: Audio stream
+      responses:
+        "200":
+          description: MP3 stream
+
+  /meta:
+    get:
+      summary: Current song metadata
+      responses:
+        "200":
+          description: Meta info
+
+  /skip:
+    post:
+      summary: Skip current song
+      responses:
+        "200":
+          description: Skipped
