@@ -1,58 +1,144 @@
-openapi: 3.0.0
+openapi: 3.0.3
 info:
   title: MetaWave Live Radio API
   version: 1.0.0
+  description: API für MetaWave Live Radio. Public- und Protected-Endpunkte getrennt.
+
 servers:
   - url: http://localhost:8000
+    description: Lokaler Entwicklungsserver
+
 components:
   securitySchemes:
-    BearerToken:
+    MetaWaveToken:
       type: apiKey
-      name: X-METAWAVE-TOKEN
       in: header
+      name: X-METAWAVE-TOKEN
+      description: Temporärer Token, der nach /login erhalten wird
+
 paths:
+
+  # ======================
+  # Public Endpoints
+  # ======================
   /login:
     get:
-      summary: Login mit Monatscode
+      summary: Login mit aktuellem Monatscode
+      description: Gibt einen temporären Token zurück, der für alle geschützten Endpunkte verwendet werden muss.
       parameters:
         - name: code
           in: query
+          description: Monatscode im Format MWYYYYMM-RADIO
           required: true
           schema:
             type: string
+            example: MW202601-RADIO
       responses:
         '200':
-          description: Token erfolgreich
+          description: Erfolgreicher Login
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    example: 53AC31EF
+                  expiresIn:
+                    type: number
+                    description: Sekunden bis Token abläuft
+                    example: 900
         '401':
           description: Ungültiger Code
-      security: []  # login braucht keine Auth
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Invalid code
+
+  # ======================
+  # Protected Endpoints
+  # ======================
   /stream:
     get:
-      summary: Live Radio Stream
+      summary: Audio-Stream starten
+      description: Liefert den Live-Audio-Stream. Token muss über Authorize-Button gesetzt werden.
+      security:
+        - MetaWaveToken: []
       responses:
         '200':
-          description: Stream verfügbar
+          description: Audio Stream (MPEG)
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
         '401':
-          description: Token ungültig
-      security:
-        - BearerToken: []
+          description: Token fehlt oder abgelaufen
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Unauthorized
+
   /skip:
     post:
-      summary: Song überspringen
+      summary: Aktuellen Song überspringen
+      description: Skipt den aktuell laufenden Song im Radio-Stream. Token muss über Authorize-Button gesetzt werden.
+      security:
+        - MetaWaveToken: []
       responses:
         '200':
-          description: Song übersprungen
+          description: Song erfolgreich geskippt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
         '401':
-          description: Token ungültig
-      security:
-        - BearerToken: []
+          description: Token fehlt oder abgelaufen
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Unauthorized
+
   /meta:
     get:
-      summary: Aktuelle Song-Informationen
+      summary: Meta-Daten zum aktuellen Stream
+      description: Liefert aktuelle Metadaten wie Songtitel, Album oder Künstler. Token muss über Authorize-Button gesetzt werden.
+      security:
+        - MetaWaveToken: []
       responses:
         '200':
-          description: Meta-Daten
+          description: Aktuelle Metadaten
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  title: "Song XYZ"
+                  artist: "Künstler ABC"
+                  album: "Album 123"
         '401':
-          description: Token ungültig
-      security:
-        - BearerToken: []
+          description: Token fehlt oder abgelaufen
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Unauthorized

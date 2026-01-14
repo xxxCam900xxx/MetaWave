@@ -15,19 +15,13 @@ app.use(cors());
 app.use(express.json());
 
 /* ==========================
-   Redirect / -> /swagger
+   Public Endpoints
 ========================== */
 app.get("/", (req, res) => res.redirect("/swagger"));
-
-/* ==========================
-   Swagger UI
-========================== */
 setupSwagger(app);
 
-/* ==========================
-   Auth
-========================== */
-app.get("/login", login); // /login?code=XXXX
+// Login for Token
+app.get("/login", login);
 
 /* ==========================
    Protected Radio Endpoints
@@ -48,7 +42,7 @@ app.post("/skip", (req, res) => {
 app.get("/meta", (req, res) => res.json(radio.getMeta()));
 
 /* ==========================
-   WebSocket (optional)
+   WebSocket
 ========================== */
 // initWebSocket(server, radio);
 
