@@ -1,7 +1,7 @@
 import express from "express";
 import http from "http";
 import { RadioEngine } from "./radioEngine.js";
-import { authMiddleware, TOKENS } from "./auth.js";
+import { authMiddleware, TOKENS, TOKEN_EXPIRY } from "./auth.js";
 import { setupSwagger } from "./swagger.js";
 import { initWebSocket } from "./ws.js";
 
@@ -25,9 +25,8 @@ app.get("/health", (req, res) => res.json({ status: "ok" }));
 
 app.post("/generate-token", (req, res) => {
   const token = Math.random().toString(16).substring(2, 10).toUpperCase();
-  const expiresIn = 15 * 60 * 1000; // 15 Minuten
-  TOKENS.set(token, Date.now() + expiresIn);
-  res.json({ token, expiresIn: 15 * 60 });
+  TOKENS.set(token, { expiresAt: Date.now() + TOKEN_EXPIRY });
+  res.json({ token, expiresIn: TOKEN_EXPIRY / 1000 }); // in Sekunden
 });
 
 /* =======================
