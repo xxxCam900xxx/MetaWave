@@ -4,10 +4,10 @@ RUN apt-get update && apt-get install -y ffmpeg
 
 WORKDIR /app
 
-COPY app/server/radio/package.json .
+COPY app/metawave_server/radio/package.json .
 RUN npm install
 
-COPY app/server/radio .
+COPY app/metawave_server/radio .
 
 VOLUME ["/songs"]
 

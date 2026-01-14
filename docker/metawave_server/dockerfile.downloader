@@ -4,10 +4,10 @@ RUN apt-get update && apt-get install -y ffmpeg
 
 WORKDIR /app
 
-COPY app/server/downloader/requirements.txt .
+COPY app/metawave_server/downloader/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app/server/downloader/update_playlist.py .
+COPY app/metawave_server/downloader/update_playlist.py .
 
 VOLUME ["/songs"]
 

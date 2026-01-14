@@ -4,7 +4,7 @@ services:
   downloader:
     build:
       context: ../..
-      dockerfile: docker/server/dockerfile.downloader
+      dockerfile: docker/metawave_server/dockerfile.downloader
     volumes:
       - songs:/songs
     environment:
@@ -14,7 +14,7 @@ services:
   radio:
     build:
       context: ../..
-      dockerfile: docker/server/dockerfile.radio
+      dockerfile: docker/metawave_server/dockerfile.radio
     volumes:
       - songs:/songs
     ports:
