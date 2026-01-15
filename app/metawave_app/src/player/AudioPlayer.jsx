@@ -136,65 +136,40 @@ export default function AudioPlayer({ token }) {
   const nowPlaying = queue[currentIndex];
 
   return (
-    <div style={{ display: "flex", maxWidth: 900, border: "1px solid #ccc", borderRadius: 8 }}>
-      <div style={{ flex: 1, padding: 20 }}>
+    <div className="audio-player">
+      <div className="player-main">
         {nowPlaying && (
-          <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
-            <img
-              src={nowPlaying.cover}
-              alt={nowPlaying.title}
-              style={{
-                width: 60,
-                height: 60,
-                borderRadius: 4,
-                marginRight: 10,
-                objectFit: "cover"
-              }}
-            />
-            <div>
-              <div style={{ fontWeight: "bold" }}>{nowPlaying.title}</div>
-              <div style={{ fontSize: 12, color: "#555" }}>{nowPlaying.author}</div>
+          <div className="now-playing">
+            <img src={nowPlaying.cover} alt={nowPlaying.title} className="cover" />
+            <div className="track-info">
+              <div className="title">{nowPlaying.title}</div>
+              <div className="author">{nowPlaying.author}</div>
             </div>
           </div>
         )}
 
-        <audio ref={audioRef} controls style={{ width: "100%" }} />
+        <audio ref={audioRef} controls className="audio-element" />
 
-        <div style={{ marginTop: 10 }}>
-          <button onClick={togglePlay}>{playing ? "Pause" : "Play"}</button>
-          <button onClick={skip} style={{ marginLeft: 10 }}>Skip</button>
-          <button onClick={shuffle} style={{ marginLeft: 10 }}>Shuffle</button>
+        <div className="controls">
+          <button onClick={togglePlay}>{playing ? <i class="fa-solid fa-pause"></i> : <i class="fa-solid fa-play"></i>}</button>
+          <button onClick={skip}><i class="fa-solid fa-forward-step"></i></button>
+          <button onClick={shuffle}><i class="fa-solid fa-shuffle"></i></button>
         </div>
       </div>
 
-      <div style={{ flex: 1, padding: 20, maxHeight: 400, overflowY: "auto", borderLeft: "1px solid #ccc" }}>
+      <div className="queue">
         <h3>Queue</h3>
-        {queue.map((song, i) => (
-          <div
-            key={i}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              padding: 5,
-              background: i === currentIndex ? "#ddd" : "transparent",
-              cursor: "pointer",
-            }}
-          >
-            {song.cover && (
-              <img
-                src={song.cover}
-                alt={song.title}
-                style={{ width: 40, height: 40, borderRadius: 4, marginRight: 10, objectFit: "cover" }}
-              />
-            )}
-            <div>
-              <div style={{ fontWeight: i === currentIndex ? "bold" : "normal" }}>
-                {song.index + 1}. {song.title}
+        <div className="queue-list">
+          {queue.map((song, i) => (
+            <div key={i} className={`queue-item ${i === currentIndex ? "active" : ""}`}>
+              {song.cover && <img src={song.cover} alt={song.title} className="queue-cover" />}
+              <div className="queue-info">
+                <div className="queue-title">{i + 1}. {song.title}</div>
+                <div className="queue-author">{song.author}</div>
               </div>
-              <div style={{ fontSize: 12, color: "#555" }}>{song.author}</div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );
