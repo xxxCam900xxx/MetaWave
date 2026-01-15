@@ -1,7 +1,12 @@
 #!/bin/bash
 set -e
 
-ngrok authtoken 34VCdTKEUGPRYnik1HjPuwe5wKb_6dKCjau1Sf3x3n2foD6sK
+if [ -z "$NGROK_AUTHTOKEN" ]; then
+  echo "NGROK_AUTHTOKEN ist nicht gesetzt"
+  exit 1
+fi
+
+ngrok config add-authtoken "$NGROK_AUTHTOKEN"
 
 node ./server.js &
 
