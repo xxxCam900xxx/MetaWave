@@ -67,21 +67,17 @@ export default function AudioPlayer({ token }) {
           if (typeof event.data === "string") {
             const msg = JSON.parse(event.data);
 
-            // Jump oder Trackwechsel → MediaSource reset
             if (msg.type === "jumpStart" || msg.type === "trackChanged") {
               appendAbortRef.current = true;
               await initMediaSource();
               if (msg.meta?.index !== undefined) setCurrentIndex(msg.meta.index);
-              if (msg.type === "trackChanged") {
-                audioRef.current.play();
-              }
+              if (msg.type === "trackChanged") audioRef.current.play();
             }
 
             if (msg.type === "queueUpdated") {
               setQueue(msg.queue.queue || []);
             }
           } else {
-            // Audio-Daten anhängen
             const chunk = new Uint8Array(event.data);
             if (!sourceBufferRef.current || appendAbortRef.current) return;
 
@@ -137,10 +133,33 @@ export default function AudioPlayer({ token }) {
   };
 
   // --- Render ---
+  const nowPlaying = queue[currentIndex];
+
   return (
     <div style={{ display: "flex", maxWidth: 900, border: "1px solid #ccc", borderRadius: 8 }}>
       <div style={{ flex: 1, padding: 20 }}>
+        {nowPlaying && (
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+            <img
+              src={nowPlaying.cover}
+              alt={nowPlaying.title}
+              style={{
+                width: 60,
+                height: 60,
+                borderRadius: 4,
+                marginRight: 10,
+                objectFit: "cover"
+              }}
+            />
+            <div>
+              <div style={{ fontWeight: "bold" }}>{nowPlaying.title}</div>
+              <div style={{ fontSize: 12, color: "#555" }}>{nowPlaying.author}</div>
+            </div>
+          </div>
+        )}
+
         <audio ref={audioRef} controls style={{ width: "100%" }} />
+
         <div style={{ marginTop: 10 }}>
           <button onClick={togglePlay}>{playing ? "Pause" : "Play"}</button>
           <button onClick={skip} style={{ marginLeft: 10 }}>Skip</button>
@@ -154,12 +173,26 @@ export default function AudioPlayer({ token }) {
           <div
             key={i}
             style={{
+              display: "flex",
+              alignItems: "center",
               padding: 5,
               background: i === currentIndex ? "#ddd" : "transparent",
               cursor: "pointer",
             }}
           >
-            {song.index + 1}. {song.title} - {song.author}
+            {song.cover && (
+              <img
+                src={song.cover}
+                alt={song.title}
+                style={{ width: 40, height: 40, borderRadius: 4, marginRight: 10, objectFit: "cover" }}
+              />
+            )}
+            <div>
+              <div style={{ fontWeight: i === currentIndex ? "bold" : "normal" }}>
+                {song.index + 1}. {song.title}
+              </div>
+              <div style={{ fontSize: 12, color: "#555" }}>{song.author}</div>
+            </div>
           </div>
         ))}
       </div>
