@@ -73,7 +73,6 @@ export class RadioEngine extends EventEmitter {
       return;
     }
 
-    // Immer abspielen, auch ohne Clients
     console.log("Now playing:", song.title);
 
     const startTime = Date.now();
@@ -92,18 +91,14 @@ export class RadioEngine extends EventEmitter {
     this.currentProcess.elapsedTime = 0;
 
     this.currentProcess.stdout.on("data", chunk => {
-      // HTTP Clients
       for (const res of this.clients) res.write(chunk);
-      // WS Clients
       for (const ws of this.wsClients) {
         if (ws.readyState === WebSocket.OPEN) ws.send(chunk);
       }
-
       this.currentProcess.elapsedTime = Math.floor((Date.now() - startTime) / 1000);
     });
 
     this.currentProcess.stderr.on("data", chunk => {
-      // ffmpeg Fehler ausgeben, nicht blockieren
       console.error(chunk.toString());
     });
 
@@ -111,8 +106,10 @@ export class RadioEngine extends EventEmitter {
       this.currentProcess = null;
       this.currentIndex++;
 
+      // Queue Ende erreicht
       if (this.currentIndex >= this.queue.length) {
-        console.log("Ende der Queue erreicht, beginne von vorn.");
+        console.log("Ende der Queue erreicht, shuffle und beginne von vorn.");
+        this.shuffleQueue();
         this.currentIndex = 0;
       }
 
@@ -123,9 +120,17 @@ export class RadioEngine extends EventEmitter {
         }
       }
 
-      // Nächsten Song starten
       this.playNext();
     });
+  }
+
+  // Neue Methode zum Shuffle der gesamten Queue
+  shuffleQueue() {
+    for (let i = this.queue.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [this.queue[i], this.queue[j]] = [this.queue[j], this.queue[i]];
+    }
+    this.broadcastQueueUpdate();
   }
 
   addClient(res) {
