@@ -179,24 +179,6 @@ export class RadioEngine extends EventEmitter {
     };
   }
 
-  jumpTo(index) {
-    if (index < 0 || index >= this.queue.length) return false;
-    if (index === this.currentIndex) return true;
-
-    const before = this.queue.slice(0, this.currentIndex + 1);
-    const remaining = this.queue.slice(this.currentIndex + 1);
-
-    const targetSong = this.queue[index];
-    const newRemaining = remaining.filter(s => s !== targetSong);
-
-    this.queue = [...before, targetSong, ...newRemaining];
-    this.currentIndex = before.length;
-
-    this.skip();
-    this.broadcastQueueUpdate();
-    return true;
-  }
-
   shuffleRemaining() {
     const played = this.queue.slice(0, this.currentIndex + 1);
     const remaining = this.queue.slice(this.currentIndex + 1);

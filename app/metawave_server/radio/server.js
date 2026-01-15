@@ -43,21 +43,6 @@ app.post("/skip", (req, res) => {
    res.json({ ok: true });
 });
 
-app.post("/jump-to", (req, res) => {
-   const { index } = req.body;
-
-   if (typeof index !== "number") {
-      return res.status(400).json({ error: "index required" });
-   }
-
-   const ok = radio.jumpTo(index);
-   if (!ok) {
-      return res.status(400).json({ error: "invalid index" });
-   }
-
-   res.json({ ok: true });
-});
-
 app.get("/meta-queue", (req, res) => {
    res.json(radio.getQueueState());
 });
