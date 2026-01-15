@@ -33,9 +33,33 @@ app.get("/stream", (req, res) => {
    radio.addClient(res);
 });
 
+app.post("/shuffle", (req, res) => {
+   radio.shuffleRemaining();
+   res.json({ ok: true });
+});
+
 app.post("/skip", (req, res) => {
    radio.skip();
    res.json({ ok: true });
+});
+
+app.post("/jump-to", (req, res) => {
+   const { index } = req.body;
+
+   if (typeof index !== "number") {
+      return res.status(400).json({ error: "index required" });
+   }
+
+   const ok = radio.jumpTo(index);
+   if (!ok) {
+      return res.status(400).json({ error: "invalid index" });
+   }
+
+   res.json({ ok: true });
+});
+
+app.get("/meta-queue", (req, res) => {
+   res.json(radio.getQueueState());
 });
 
 app.get("/meta", (req, res) => res.json(radio.getMeta()));
@@ -46,15 +70,15 @@ app.get("/meta", (req, res) => res.json(radio.getMeta()));
 const wss = new WebSocketServer({ server });
 
 wss.on("connection", (ws, req) => {
-  const token = new URL(req.url, `http://${req.headers.host}`).searchParams.get("token");
-  // Optional: hier Token prüfen
-  radio.addWSClient(ws);
+   const token = new URL(req.url, `http://${req.headers.host}`).searchParams.get("token");
+   // Optional: hier Token prüfen
+   radio.addWSClient(ws);
 
-  ws.on("message", (msg) => {
-    if (msg.toString() === "SKIP") {
-      radio.skip();
-    }
-  });
+   ws.on("message", (msg) => {
+      if (msg.toString() === "SKIP") {
+         radio.skip();
+      }
+   });
 });
 
 /* ==========================

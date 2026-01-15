@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: MetaWave Live Radio API
-  version: 1.0.0
+  version: 0.10.1
   description: API für MetaWave Live Radio. Public- und Protected-Endpunkte getrennt.
 
 servers:
@@ -16,6 +16,78 @@ components:
       name: X-METAWAVE-TOKEN
       description: Temporärer Token, der nach /login erhalten wird
 
+  schemas:
+    StreamMeta:
+      type: object
+      properties:
+        filename:
+          type: string
+          example: song3.mp3
+        title:
+          type: string
+          example: Song XYZ
+        author:
+          type: string
+          example: Künstler ABC
+        duration:
+          type: integer
+          description: Länge des Songs in Sekunden
+          example: 215
+        cover:
+          type: string
+          format: uri
+          example: https://example.com/cover.jpg
+        index:
+          type: integer
+          example: 2
+        total:
+          type: integer
+          example: 12
+        elapsed:
+          type: integer
+          description: Sekunden seit Start des Songs
+          example: 45
+
+    QueueItem:
+      type: object
+      properties:
+        filename:
+          type: string
+          example: song4.mp3
+        title:
+          type: string
+          example: Song ABC
+        author:
+          type: string
+          example: Künstler XYZ
+        duration:
+          type: integer
+          example: 180
+        cover:
+          type: string
+          format: uri
+          example: https://example.com/cover2.jpg
+        index:
+          type: integer
+          example: 3
+        isPlaying:
+          type: boolean
+          example: false
+
+    QueueState:
+      type: object
+      properties:
+        nowPlayingIndex:
+          type: integer
+          example: 2
+        nowPlaying:
+          type: string
+          example: song3.mp3
+        queue:
+          type: array
+          items:
+            $ref: "#/components/schemas/QueueItem"
+
 paths:
 
   # ======================
@@ -28,7 +100,6 @@ paths:
       parameters:
         - name: code
           in: query
-          description: Monatscode im Format MWYYYYMM-RADIO
           required: true
           schema:
             type: string
@@ -45,8 +116,7 @@ paths:
                     type: string
                     example: 53AC31EF
                   expiresIn:
-                    type: number
-                    description: Sekunden bis Token abläuft
+                    type: integer
                     example: 900
         '401':
           description: Ungültiger Code
@@ -65,7 +135,7 @@ paths:
   /stream:
     get:
       summary: Audio-Stream starten
-      description: Liefert den Live-Audio-Stream. Token muss über Authorize-Button gesetzt werden.
+      description: Liefert den Live-Audio-Stream.
       security:
         - MetaWaveToken: []
       responses:
@@ -77,25 +147,17 @@ paths:
                 type: string
                 format: binary
         '401':
-          description: Token fehlt oder abgelaufen
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: Unauthorized
+          description: Unauthorized
 
   /skip:
     post:
       summary: Aktuellen Song überspringen
-      description: Skipt den aktuell laufenden Song im Radio-Stream. Token muss über Authorize-Button gesetzt werden.
+      description: Beendet den aktuell laufenden Song sofort.
       security:
         - MetaWaveToken: []
       responses:
         '200':
-          description: Song erfolgreich geskippt
+          description: Skip erfolgreich
           content:
             application/json:
               schema:
@@ -105,40 +167,88 @@ paths:
                     type: boolean
                     example: true
         '401':
-          description: Token fehlt oder abgelaufen
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: Unauthorized
+          description: Unauthorized
 
   /meta:
     get:
-      summary: Meta-Daten zum aktuellen Stream
-      description: Liefert aktuelle Metadaten wie Songtitel, Album oder Künstler. Token muss über Authorize-Button gesetzt werden.
+      summary: Metadaten des aktuell laufenden Songs
+      description: Liefert Metadaten des Songs inklusive Titel, Autor, Cover, Dauer und elapsed time.
       security:
         - MetaWaveToken: []
       responses:
         '200':
-          description: Aktuelle Metadaten
+          description: Aktuelle Stream-Metadaten
           content:
             application/json:
               schema:
-                type: object
-                example:
-                  title: "Song XYZ"
-                  artist: "Künstler ABC"
-                  album: "Album 123"
+                $ref: "#/components/schemas/StreamMeta"
         '401':
-          description: Token fehlt oder abgelaufen
+          description: Unauthorized
+
+  /meta-queue:
+    get:
+      summary: Kompletter Queue-Status
+      description: Liefert die gesamte Queue in korrekter Reihenfolge inkl. aktuell spielendem Song, mit allen Metadaten.
+      security:
+        - MetaWaveToken: []
+      responses:
+        '200':
+          description: Aktueller Queue-Zustand
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueueState"
+        '401':
+          description: Unauthorized
+
+  /jump-to:
+    post:
+      summary: Zu einem Song in der Queue springen
+      description: Springt zu einem bestimmten Index. Noch nicht gespielte Songs bleiben erhalten.
+      security:
+        - MetaWaveToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                index:
+                  type: integer
+                  example: 5
+      responses:
+        '200':
+          description: Jump erfolgreich
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  error:
-                    type: string
-                    example: Unauthorized
+                  ok:
+                    type: boolean
+                    example: true
+        '400':
+          description: Ungültiger Index
+        '401':
+          description: Unauthorized
+
+  /shuffle:
+    post:
+      summary: Shuffle der noch nicht gespielten Songs
+      description: Shuffelt nur die verbleibenden Songs nach dem aktuellen Track.
+      security:
+        - MetaWaveToken: []
+      responses:
+        '200':
+          description: Shuffle erfolgreich
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+        '401':
+          description: Unauthorized
