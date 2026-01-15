@@ -9,6 +9,7 @@ export default function AudioPlayer({ token }) {
   const sourceBufferRef = useRef(null);
   const mediaSourceRef = useRef(null);
   const wsRef = useRef(null);
+  const appendAbortRef = useRef(false);
 
   // --- Initial Queue vom Server laden ---
   useEffect(() => {
@@ -26,74 +27,88 @@ export default function AudioPlayer({ token }) {
     fetchQueue();
   }, []);
 
-  // --- WebSocket + MediaSource Setup ---
+  // --- MediaSource Setup ---
+  const initMediaSource = () =>
+    new Promise((resolve) => {
+      const audio = audioRef.current;
+      if (!audio) return;
+
+      const mediaSource = new MediaSource();
+      mediaSourceRef.current = mediaSource;
+      audio.src = URL.createObjectURL(mediaSource);
+
+      const onSourceOpen = () => {
+        mediaSource.removeEventListener("sourceopen", onSourceOpen);
+        try {
+          sourceBufferRef.current = mediaSource.addSourceBuffer("audio/mpeg");
+        } catch (err) {
+          console.error("addSourceBuffer Error:", err);
+        }
+        appendAbortRef.current = false;
+        resolve();
+      };
+
+      mediaSource.addEventListener("sourceopen", onSourceOpen);
+    });
+
+  // --- WebSocket Setup ---
   useEffect(() => {
     if (!audioRef.current) return;
-    const audio = audioRef.current;
-    const mediaSource = new MediaSource();
-    mediaSourceRef.current = mediaSource;
-    audio.src = URL.createObjectURL(mediaSource);
 
-    const handleSourceOpen = () => {
-      sourceBufferRef.current = mediaSource.addSourceBuffer("audio/mpeg");
+    const setupWS = async () => {
+      await initMediaSource();
 
       const ws = new WebSocket(`ws://knobbiest-vickie-lifelike.ngrok-free.dev?token=${token}`);
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
       ws.onmessage = async (event) => {
-        if (typeof event.data === "string") {
-          try {
+        try {
+          if (typeof event.data === "string") {
             const msg = JSON.parse(event.data);
 
-            // Trackwechsel
-            if (msg.type === "trackChanged") {
-              setCurrentIndex(msg.meta.index);
-
-              if (sourceBufferRef.current) {
-                sourceBufferRef.current.abort();
-                const newMediaSource = new MediaSource();
-                mediaSourceRef.current = newMediaSource;
-                audio.src = URL.createObjectURL(newMediaSource);
-                newMediaSource.addEventListener("sourceopen", () => {
-                  sourceBufferRef.current = newMediaSource.addSourceBuffer("audio/mpeg");
-                });
-                audio.play();
+            // Jump oder Trackwechsel → MediaSource reset
+            if (msg.type === "jumpStart" || msg.type === "trackChanged") {
+              appendAbortRef.current = true;
+              await initMediaSource();
+              if (msg.meta?.index !== undefined) setCurrentIndex(msg.meta.index);
+              if (msg.type === "trackChanged") {
+                audioRef.current.play();
               }
             }
 
-            // Queue Update
             if (msg.type === "queueUpdated") {
               setQueue(msg.queue.queue || []);
             }
-          } catch (err) {
-            console.error("WS JSON Parse Fehler:", err);
-          }
-        } else {
-          // Live Audio-Daten anhängen
-          const chunk = new Uint8Array(event.data);
-          if (!sourceBufferRef.current) return;
+          } else {
+            // Audio-Daten anhängen
+            const chunk = new Uint8Array(event.data);
+            if (!sourceBufferRef.current || appendAbortRef.current) return;
 
-          await new Promise((resolve) => {
-            const append = () => {
+            const appendChunk = () => {
+              if (!sourceBufferRef.current || appendAbortRef.current) return;
               if (!sourceBufferRef.current.updating) {
-                sourceBufferRef.current.appendBuffer(chunk);
+                try {
+                  sourceBufferRef.current.appendBuffer(chunk);
+                } catch (err) {
+                  console.error("appendBuffer Error:", err);
+                }
               } else {
-                sourceBufferRef.current.addEventListener("updateend", append, { once: true });
+                sourceBufferRef.current.addEventListener("updateend", appendChunk, { once: true });
               }
-              sourceBufferRef.current.addEventListener("updateend", resolve, { once: true });
             };
-            append();
-          });
+            appendChunk();
+          }
+        } catch (err) {
+          console.error("WS JSON Parse Fehler:", err);
         }
       };
     };
 
-    mediaSource.addEventListener("sourceopen", handleSourceOpen);
+    setupWS();
 
     return () => {
       wsRef.current?.close();
-      mediaSource.removeEventListener("sourceopen", handleSourceOpen);
     };
   }, [token]);
 
@@ -121,18 +136,9 @@ export default function AudioPlayer({ token }) {
     }
   };
 
-  const jumpTo = async (index) => {
-    try {
-      await api.post("/jump-to", { index });
-    } catch (err) {
-      console.error("JumpTo fehlgeschlagen:", err);
-    }
-  };
-
   // --- Render ---
   return (
     <div style={{ display: "flex", maxWidth: 900, border: "1px solid #ccc", borderRadius: 8 }}>
-      {/* --- Left: Player --- */}
       <div style={{ flex: 1, padding: 20 }}>
         <audio ref={audioRef} controls style={{ width: "100%" }} />
         <div style={{ marginTop: 10 }}>
@@ -142,7 +148,6 @@ export default function AudioPlayer({ token }) {
         </div>
       </div>
 
-      {/* --- Right: Queue --- */}
       <div style={{ flex: 1, padding: 20, maxHeight: 400, overflowY: "auto", borderLeft: "1px solid #ccc" }}>
         <h3>Queue</h3>
         {queue.map((song, i) => (
@@ -153,7 +158,6 @@ export default function AudioPlayer({ token }) {
               background: i === currentIndex ? "#ddd" : "transparent",
               cursor: "pointer",
             }}
-            onClick={() => jumpTo(i)}
           >
             {song.index + 1}. {song.title} - {song.author}
           </div>
