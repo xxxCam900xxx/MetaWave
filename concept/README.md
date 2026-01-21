@@ -1,163 +1,72 @@
 ![MetaWave Banner](/concept/images/MetaWave%20-%20Banner.png)
 
-# MetaWave – Komplette Roadmap
+# MetaWave | Projekt
+Music without limits, streaming without ads
 
 ---
 
-## Phase 0: Zieldefinition & Architektur
+## Inhaltsverzeichnis
+- [MetaWave | Projekt](#metawave--projekt)
+  - [Inhaltsverzeichnis](#inhaltsverzeichnis)
+  - [Ziel](#ziel)
+  - [Infrasturktur](#infrasturktur)
+  - [Funktionen](#funktionen)
+    - [Client](#client)
+    - [Server (Auth + Radio + Notification)](#server-auth--radio--notification)
+  - [Design](#design)
+  - [Programmiersprachen](#programmiersprachen)
+    - [Client](#client-1)
+    - [Server](#server)
 
-**Ziele:**
-- Audio-Media-Server zuhause hosten
-- Endlos-Radio-Stream mit Shuffle-Logik
-- Monatliche Playlist-Updates via YouTube
-- Client-App (PWA) für iOS/Android
-- Zugangscode-System für externen Zugriff
-- QR-Code für schnellen Login
 
-**Architektur-Übersicht:**
-```
-Client-App / PWA
-        |
-        |  HTTPS + Zugangscode
-        v
-Cloudflare Tunnel / Reverse Proxy
-        |
-        v
-MetaWave-Server (Python + Node.js)
-        |
-        v
-Shuffle-Radio + yt-dlp + Songs
-```
+## Ziel
+Das Ziel dieser Lösung ist es das man mit Freunden oder Arbeitskollegen eine Youtube und / oder Spotify Playlist führen kann und man dann ohne Werbung wie bei einem Radio die Lieder Endlos reinhören kann. Dabei kann jeder die Lieder überspringen, verschieben, neu shuffeln, eigene Streams erstellen mit Filter auf Artist oder anderen Faktoren. Das ganze wird durch ein Login Token geschützt welcher vom Server jeden Monat generiert wird und via Push Notification in die Whatsapp oder Signal Gruppe geschickt wird.
 
----
+## Infrasturktur
 
-## Phase 1: Server Setup
+![Infrastruktur](/concept/images/Infrastructure.drawio.png)
 
-### 1.1 Ordnerstruktur & Dateien
-- `/songs/` – Musikdateien
-- `/metadata/` – Metadaten JSON
-- `/logs/` – Server-Logs
-- `codes.json` – Zugangscode-Mapping
+Die Infrastruktur wurde so gewählt, da man sich nicht in bewägung gezogen hat einen Reverse Tunnel oder CloudFlare Tunnel zu erstellen und da man sich mehr mit DNS Records, Firewall und Sicherheit von Aussen sich beschäftigen wollte.
 
-### 1.2 Playlist-Downloader
-- **Technologie:** Python + yt-dlp
-- **Aufgabe:** Monatliche Playlist abrufen, Songs herunterladen, alte Songs löschen
-- **Automation:** Cronjob
-```bash
-0 3 1 * * python3 update_playlist.py
-```
+Das Projekt in der produktiven Umgebung hat ein sicheres aber auch grosses Setup. Der Ablauf geht wie folgt:
 
-### 1.3 Shuffle-Radio-Server
-- **Technologie:** Node.js + ffmpeg / audio-streaming
-- **Funktionen:**
-  - Shuffle-Logik (Fisher-Yates)
-  - Endlos-Stream `/stream`
-  - Steuer-Endpunkte `/skip`, `/play`, `/queue`
-  - Metadaten-Endpunkt `/meta`
+Zuerst wird auf `Hostpoint` oder HostServer der Wahl eine Webseite erstellt wo wir dann den Client Code Deployen, zusätzlich machen wir einen `DNS A-Record` auf die Öffentliche IP meines Netzwerk.
 
-### 1.4 Zugangscode-Check
-- **codes.json**
-```json
-{
-  "2026-01": "RADIO-1234",
-  "2026-02": "META-5678"
-}
-```
-- Server prüft jeden Request → gültig = Zugriff erlaubt
+Als nächstes wird eine Portweiterleitung erstellt, welche dann auf den HomeServer `NGNIX Reverse Proxy` weiterleitet. Dieser wiederum leitet mit dem Loadbalancer auf einer der 2 Nodes die erstellt werden.
 
----
+Die Nodes beinhalten den Server-Code für die Generierung und Notifizierung vom WaveToken, die Authentifizierung sowie den Radio-Service.
 
-## Phase 2: Von außen erreichbar
+Jeder Node hat auf den gleichen Speicherzugang logischerweise.
 
-### 2.1 Cloudflare Tunnel
-- Installiere `cloudflared`
-- Befehl:
-```bash
-cloudflared tunnel run metawave
-```
-- Ergebnis: `https://metawave.yourdomain.com`
+**Warum wird der Speicher nicht gespiegelt?**
+Die Entscheidung, den Speicher nicht zu spiegeln, liegt darin, dass ich auf meinem Proxmox-Server zu Hause einfach nicht genug Speicherplatz habe, wenn ich nebenbei einen JellyFin-Server betreibe.
 
-### 2.2 HTTPS & Sicherheit
-- Tunnel erledigt TLS/HTTPS
-- Zugangscode prüfen bei allen Requests
-- Rate-Limits auf API-Endpunkte
-- Keine offenen Admin-Endpunkte
+## Funktionen
+### Client
+- Der Client hat ein Login Formular, wo er 
 
----
+### Server (Auth + Radio + Notification)
+- **Authentication Service**
+  - Generiert Monatlich einen WaveToken für das Login
+  - Man kann sich mit WaveToken einloggen und kriegt einen Token
+  - Man kann den Token validieren um den Token zu verlängern
+- **Notification Service**
+  - Bei der montlichen WaveToken erneuerung wird in den Whatsapp odr. Signal Chat eine Notification mit dem Token geschickt.
+- **RadioEngine Service**
+  - Man hat nur zugang zum Service wenn der Auth Service es erlaubt.
+  - MainStream wird endlos abgespielt und dabei wird eine Queue generiert
+  - Man kann die Metadaten von den aktuell abgespielten Song auslesen
+  - Man kann die Metadaten von allen Songs in der Queue auslesen
+  - Man kann hat die volle Kontrolle über den MainStream und kann skippen, lautstärke regulieren, auf ein bestimmten song springen, die zu abgespielten songs zurück springen, die noch nicht abgespielten Songs neu shuffeln.
+  - Der MainStream wir bei jeder neuen Queue neu geshuffelt.
 
-## Phase 3: Client / App (PWA)
+Genaueren Informationen zu den Endpunkten finden Sie im ENDPOINTS.md
 
-### 3.1 Grundfunktionen
-- Zugangscode-Eingabe
-- Stream abspielen
-- Skip / Lautstärke / Play / Pause
-- Metadaten-Anzeige
-- Queue / Favoriten
+## Design
+Es soll ein simples Youtube Musik & Spotify Design haben, sodass man es auf Desktop und auf dem Handy benutzen kann. Der Client ist Mobile first gebaut.
 
-### 3.2 QR-Code-Login
-- Generiere QR-Code für aktuellen Zugangscode
-- Scan in App → Code automatisch eintragen
-- Technologie: `qrcode.js` oder serverseitig Python `qrcode`-Bibliothek
-
-### 3.3 PWA Features
-- Homescreen-Installation
-- Offline-Caching (optional, nur Metadaten)
-- Responsive Design
-
----
-
-## Phase 4: Server-Client-Kommunikation
-
-| Funktion       | Ausgeführt von | Technologie       |
-|----------------|----------------|-----------------|
-| Audio-Stream   | Server         | HTTP/HTTPS       |
-| Skip Song      | Client → Server| WebSocket/REST   |
-| Play/Pause     | Client → Server| WebSocket/REST   |
-| Shuffle        | Server         | Fisher-Yates Algorithmus |
-| Neue Playlist  | Server         | Cronjob + yt-dlp |
-| QR-Code Login  | Client → Server| Scan + Code Validierung |
-
----
-
-## Phase 5: Testing
-
-- Endlos-Stream testen → keine Wiederholungen vor neuem Shuffle
-- Skip/Play/Queue → synchron mit mehreren Clients
-- Zugangscode → gültig/ungültig prüfen
-- QR-Code Login → Scan funktioniert korrekt
-- Tunnel / HTTPS → von extern erreichbar
-
----
-
-## Phase 6: Optional / Feinschliff
-
-- Push-Benachrichtigungen bei neuen Songs
-- Favoriten pro Benutzer speichern
-- Codes automatisch monatlich generieren
-- Design optimieren (App & Metadatenanzeige)
-
----
-
-## Phase 7: Zeitplan (Empfehlung)
-
-| Phase | Dauer |
-|-------|-------|
-| 1 – Server lokal | 1–2 Wochen |
-| 2 – Tunnel & HTTPS | 1 Tag |
-| 3 – PWA & QR-Code | 1–2 Wochen |
-| 4 – Kommunikation & API | 1 Woche |
-| 5 – Testing & Debug | 3–5 Tage |
-| 6 – Optionales Feinschliff | flexibel |
-
----
-
-## Phase 8: Tech-Stack Zusammenfassung
-
-| Bereich | Technologie |
-|---------|-------------|
-| Playlist Download | Python + yt-dlp + Cron |
-| Audio-Stream | Node.js + ffmpeg |
-| Auth / Code-Check | Node.js / Python |
-| Tunnel / Remote Access | Cloudflare Tunnel / LocalUp |
-| Client App | PWA (React oder Vanilla JS) |
-| QR-Code Login | qrcode.js / Python qrc
+## Programmiersprachen
+### Client
+- React Native, wegen der Android & iOS unterstützung
+### Server
+- Node.js um im einklang mit dem Client zu sein
