@@ -1,0 +1,11 @@
+version: "3.9"
+services:
+  app:
+    container_name: metawave
+    build: 
+      context: ../..
+      dockerfile: docker/metawave_app/dockerfile.app
+    env_file:
+      - .env
+    ports:
+      - "80:8081"

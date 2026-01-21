@@ -1,0 +1,5 @@
+version: '3.9'
+name: metawave
+include:
+  - metawave_server/compose.server.yaml
+  - metawave_app/compose.app.yaml
