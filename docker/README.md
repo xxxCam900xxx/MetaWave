@@ -1,46 +1,52 @@
-# How to start the project
+# Wie startet man das Projekt mit Docker?
 
-- [How to start the project](#how-to-start-the-project)
-  - [Step 0 | Install Docker](#step-0--install-docker)
-  - [Step 1 | Create Enviroment Files](#step-1--create-enviroment-files)
-  - [Step 2 | Start Containers](#step-2--start-containers)
+- [Wie startet man das Projekt mit Docker?](#wie-startet-man-das-projekt-mit-docker)
+  - [Step 0 | Docker installieren](#step-0--docker-installieren)
+  - [Step 1 | Enviroment Files erstellen](#step-1--enviroment-files-erstellen)
+  - [Step 2 | Docker Container starten](#step-2--docker-container-starten)
   - [Step 3 | Start Coding!](#step-3--start-coding)
 
-## Step 0 | Install Docker
+---
 
-Install Docker Desktop on your System:
+## Step 0 | Docker installieren
+
+Installieren Sie Docker Desktop auf Ihrem System:
 - https://www.docker.com/products/docker-desktop/
 
 ```bash
-# To verify the presence of Docker
+docker version
 docker compose version
 ```
 
 > [!IMPORTANT]
-> - Make sure Docker is running before continuing.
-> - You need Docker Compose v2.20+ for the include feature.
+> - Stellen Sie sicher, dass Docker ausgeführt wird, bevor Sie fortfahren.
+> - Für die Include-Funktion benötigen Sie Docker Compose v2.20+.
 
-## Step 1 | Create Enviroment Files
+## Step 1 | Enviroment Files erstellen
 
-Create in the `/docker/metawave_app` directory a `.env` File with the following Variables:
+Erstellen Sie im Verzeichnis `/docker/metawave_app` eine `.env` Datei mit den folgenden Variablen:
 
-```.env
-# For local development, you can use localhost
+```bash
+# Für die lokale Entwicklung können Sie localhost verwenden.
 API_DOMAIN_URL=<http://localhost:8000>
 ```
 
-## Step 2 | Start Containers
+Danach erstellen Sie im Verzeichnis `/docker/metawave_server` eine `.env` Datei mit den folgenden Variablen:
+```bash
+# Schauen Sie das die Playlist öffentlich zugänglich ist!
+PLAYLIST_URL=<https://example.org/?playlist=kjnqwdoiugfikpoashd>
+```
 
-Use the following command in the `docker` directory:
+## Step 2 | Docker Container starten
+
+Verwenden Sie den folgenden Befehl im Verzeichnis `docker`:
 
 ```bash
 docker compose -f compose.enviroment.yaml up --build
 ```
 
-This will create all the Containers
-
 ## Step 3 | Start Coding!
 
-The following Ports are gonna be used:
+Die folgenden Ports werden verwendet:
 - `:8000` -> (API) | [Radio & Auth Service](http://localhost:8000)
 - `:80` -> (Client) | [WebApp](http://localhost:80)
