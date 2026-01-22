@@ -1,0 +1,9 @@
+version: "3.9"
+services:
+  database:
+    container_name: database
+    build: 
+      context: ../..
+      dockerfile: docker/metawave_database/dockerfile.database
+    env_file:
+      - .env
