@@ -32,10 +32,23 @@ export const playerStyles = StyleSheet.create({
     fontSize: 14,
   },
   centerContent: {
-    flex: 1,
+    flexGrow: 1,
     alignItems: "center",
-    justifyContent: "center",
     paddingHorizontal: 24,
+    paddingVertical: 24,
+  },
+  centerContentDesktop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "center",
+    paddingHorizontal: 40,
+    paddingBottom: 24,
+  },
+  playerColumn: {
+    width: "100%",
+    maxWidth: 520,
+    alignItems: "center",
+    marginBottom: 24,
   },
   cover: {
     width: 260,
@@ -158,6 +171,13 @@ export const playerStyles = StyleSheet.create({
     marginTop: 24,
     width: "100%",
     flex: 1,
+  },
+  queueContainerDesktop: {
+    marginTop: 0,
+    marginLeft: 32,
+    flex: 1,
+    maxWidth: 520,
+    alignSelf: "stretch",
   },
   queueHeader: {
     color: "#ffffff",

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, Image, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Image, ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
@@ -47,6 +47,8 @@ const formatEndClockTime = (remainingSeconds: number): string => {
 
 export default function PlayerScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 900;
   const [meta, setMeta] = useState<StreamMeta | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -321,90 +323,92 @@ export default function PlayerScreen() {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.centerContent}>
-        {meta?.cover ? (
-          <Image source={{ uri: meta.cover }} style={styles.cover} />
-        ) : (
-          <View style={[styles.cover, styles.coverPlaceholder]}>
-            <Text style={styles.coverPlaceholderText}>MetaWave</Text>
-          </View>
-        )}
-
-        <View style={styles.metaBlock}>
-          <Text style={styles.songTitle}>{meta?.title || "Unbekannter Titel"}</Text>
-          <Text style={styles.songAuthor}>{meta?.author || "Unbekannter Künstler"}</Text>
-          {meta?.index !== undefined && meta?.total !== undefined && (
-            <Text style={styles.queueText}>
-              Track {meta.index + 1} / {meta.total}
-            </Text>
+      <ScrollView
+        contentContainerStyle={[styles.centerContent, isDesktop && styles.centerContentDesktop]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.playerColumn}>
+          {meta?.cover ? (
+            <Image source={{ uri: meta.cover }} style={styles.cover} />
+          ) : (
+            <View style={[styles.cover, styles.coverPlaceholder]}>
+              <Text style={styles.coverPlaceholderText}>MetaWave</Text>
+            </View>
           )}
-        </View>
 
-        <View style={styles.progressBarWrapper}>
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { flex: progress }]} />
-            <View style={{ flex: 1 - progress }} />
+          <View style={styles.metaBlock}>
+            <Text style={styles.songTitle}>{meta?.title || "Unbekannter Titel"}</Text>
+            <Text style={styles.songAuthor}>{meta?.author || "Unbekannter Künstler"}</Text>
+            {meta?.index !== undefined && meta?.total !== undefined && (
+              <Text style={styles.queueText}>
+                Track {meta.index + 1} / {meta.total}
+              </Text>
+            )}
           </View>
-          <View style={styles.progressLabelRow}>
-            <Text style={styles.progressLabel}>{formatTime(elapsedSeconds)}</Text>
-            <View style={styles.progressRightBlock}>
-              <Text style={styles.progressLabel}>-{formatTime(remainingSeconds)}</Text>
-              {remainingSeconds > 0 && (
-                <Text style={styles.progressEndLabel}>Endet um {formatEndClockTime(remainingSeconds)}</Text>
-              )}
+
+          <View style={styles.progressBarWrapper}>
+            <View style={styles.progressBarBg}>
+              <View style={[styles.progressBarFill, { flex: progress }]} />
+              <View style={{ flex: 1 - progress }} />
+            </View>
+            <View style={styles.progressLabelRow}>
+              <Text style={styles.progressLabel}>{formatTime(elapsedSeconds)}</Text>
+              <View style={styles.progressRightBlock}>
+                <Text style={styles.progressLabel}>-{formatTime(remainingSeconds)}</Text>
+                {remainingSeconds > 0 && (
+                  <Text style={styles.progressEndLabel}>Endet um {formatEndClockTime(remainingSeconds)}</Text>
+                )}
+              </View>
+            </View>
+            <View style={{ alignItems: "center", marginTop: 8 }}>
+              <Text style={styles.queueText}>Lautstärke: {volume}%</Text>
             </View>
           </View>
-          <View style={{ alignItems: "center", marginTop: 8 }}>
-            <Text style={styles.queueText}>Lautstärke: {volume}%</Text>
+
+          {error && <Text style={styles.errorText}>{error}</Text>}
+
+          <View style={styles.controlsRowMain}>
+            <TouchableOpacity style={styles.secondaryButton} onPress={() => callControl("/stream/control/previous")}>
+              <Text style={styles.secondaryButtonText}>{"<<"}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.playButton} onPress={togglePlayPause} disabled={playbackLoading}>
+              {playbackLoading ? (
+                <ActivityIndicator color="#000" />
+              ) : (
+                <Text style={styles.playButtonText}>{isPlaying ? "Pause" : "Play"}</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.secondaryButton} onPress={() => callControl("/stream/control/skip")}>
+              <Text style={styles.secondaryButtonText}>{">>"}</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.controlsRowSecondary}>
+            <TouchableOpacity style={styles.chip} onPress={() => changeVolume(-10)}>
+              <Text style={styles.chipText}>-10%</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.chip} onPress={() => callControl("/stream/control/shuffle")}>
+              <Text style={styles.chipText}>Shuffle</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.chip} onPress={() => changeVolume(10)}>
+              <Text style={styles.chipText}>+10%</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
-        {error && <Text style={styles.errorText}>{error}</Text>}
-
-        <View style={styles.controlsRowMain}>
-          <TouchableOpacity style={styles.secondaryButton} onPress={() => callControl("/stream/control/previous")}>
-            <Text style={styles.secondaryButtonText}>{"<<"}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.playButton} onPress={togglePlayPause} disabled={playbackLoading}>
-            {playbackLoading ? (
-              <ActivityIndicator color="#000" />
-            ) : (
-              <Text style={styles.playButtonText}>{isPlaying ? "Pause" : "Play"}</Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.secondaryButton} onPress={() => callControl("/stream/control/skip")}>
-            <Text style={styles.secondaryButtonText}>{">>"}</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.controlsRowSecondary}>
-          <TouchableOpacity style={styles.chip} onPress={() => changeVolume(-10)}>
-            <Text style={styles.chipText}>-10%</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.chip} onPress={() => callControl("/stream/control/shuffle")}>
-            <Text style={styles.chipText}>Shuffle</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.chip} onPress={() => changeVolume(10)}>
-            <Text style={styles.chipText}>+10%</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.queueContainer}>
+        <View style={[styles.queueContainer, isDesktop && styles.queueContainerDesktop]}>
           <Text style={styles.queueHeader}>Queue</Text>
-          <FlatList
-            data={queue}
-            keyExtractor={(item) => String(item.index)}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.queueListContent}
-            renderItem={({ item }) => {
+          <View style={styles.queueListContent}>
+            {queue.map((item) => {
               const active = item.isPlaying;
               const played = item.hasBeenPlayed && !active;
               return (
                 <TouchableOpacity
+                  key={item.index}
                   style={[styles.queueItem, played && styles.queueItemPlayed, active && styles.queueItemActive]}
                   onPress={() => callControl(`/stream/control/jumpto/${item.index}`)}
                   activeOpacity={0.7}
@@ -428,10 +432,10 @@ export default function PlayerScreen() {
                   <Text style={styles.queueDuration}>{item.duration ? `${Math.round(item.duration / 60)} min` : ""}</Text>
                 </TouchableOpacity>
               );
-            }}
-          />
+            })}
+          </View>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
