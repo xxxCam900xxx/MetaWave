@@ -27,4 +27,10 @@ CREATE TABLE IF NOT EXISTS wave_tokens (
   UNIQUE KEY unique_month (year, month)
 );
 
+CREATE TABLE IF NOT EXISTS email_notificationrecipient (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 COMMIT;

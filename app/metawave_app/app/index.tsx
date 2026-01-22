@@ -114,9 +114,14 @@ export default function Index() {
           {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.loginText}>Einloggen & Hören</Text>}
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.linkButton} onPress={() => router.push("/invite")}>
-          <Text style={styles.linkText}>Keine Notification? Signal Invite öffnen</Text>
-        </TouchableOpacity>
+        <View style={styles.helperRow}>
+          <TouchableOpacity style={styles.helperButton} onPress={() => router.push("/invite")}>
+            <Text style={styles.helperButtonText}>Signal Invite</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.helperButton} onPress={() => router.push("/email") }>
+            <Text style={styles.helperButtonText}>E-Mail Notification</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </SafeAreaView>
   );

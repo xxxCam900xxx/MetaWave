@@ -52,11 +52,25 @@ export const loginStyles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 16,
   },
-  linkButton: {
-    marginTop: 8,
+  helperRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 12,
   },
-  linkText: {
+  helperButton: {
+    flex: 1,
+    marginHorizontal: 4,
+    borderRadius: 999,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#151523",
+    borderWidth: 1,
+    borderColor: "#4fa3ff",
+  },
+  helperButtonText: {
     color: "#4fa3ff",
-    textDecorationLine: "underline",
+    fontSize: 12,
+    fontWeight: "500",
   },
 });

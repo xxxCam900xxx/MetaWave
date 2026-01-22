@@ -14,7 +14,11 @@ tags:
   - name: Radio
     description: Live-Radio-Stream und Steuerung
   - name: Notification - Signal
-    description: Signal-spezifische Notification-Routen (invite/leave/run-job)
+    description: Signal-spezifische Notification-Routen (invite/leave)
+  - name: Notification - Email
+    description: E-Mail-spezifische Notification-Routen (invite/leave)
+  - name: Notification - Jobs
+    description: Geplante oder manuell ausgelöste Notification-Jobs (run-job)
 
 components:
   securitySchemes:
@@ -138,6 +142,50 @@ components:
         message:
           type: string
           example: SignalGroup was Successfully deleted
+
+    EmailInviteRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+
+    EmailInviteResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 201
+        message:
+          type: string
+          example: Email recipient was Successfully added
+        result:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            email:
+              type: string
+              example: "user@example.com"
+
+    EmailLeaveRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+
+    EmailLeaveResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: Email recipient was Successfully deleted
 
     RunJobResponse:
       type: object
@@ -509,10 +557,56 @@ paths:
         "404":
           description: Gruppe nicht gefunden
 
+  /notification/email/invite:
+    post:
+      tags:
+        - Notification - Email
+      summary: E-Mail-Empfänger einladen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailInviteRequest"
+      responses:
+        "201":
+          description: E-Mail-Empfänger hinzugefügt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailInviteResponse"
+        "400":
+          description: Ungültige Anfrage (email fehlt oder ist ungültig)
+        "409":
+          description: E-Mail-Empfänger existiert bereits
+
+  /notification/email/leave:
+    post:
+      tags:
+        - Notification - Email
+      summary: E-Mail-Empfänger entfernen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailLeaveRequest"
+      responses:
+        "200":
+          description: E-Mail-Empfänger entfernt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailLeaveResponse"
+        "400":
+          description: Ungültige Anfrage (email fehlt oder ist ungültig)
+        "404":
+          description: E-Mail-Empfänger nicht gefunden
+
   /notification/run-job:
     get:
       tags:
-        - Notification - Signal
+        - Notification - Jobs
       summary: Notification Job ausführen (für Tests)
       security:
         - BearerAuth: []

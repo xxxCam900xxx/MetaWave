@@ -22,7 +22,9 @@ Hier werden alle Endpunkte mit ihrem Zweck sowie allen möglichen `Headern`, `Pa
   - [Notification Service](#notification-service)
     - [POST `/notification/signal/invite`](#post-notificationsignalinvite)
     - [POST `/notification/signal/leave`](#post-notificationsignalleave)
-    - [GET `/notification/signal/run-job`](#get-notificationsignalrun-job)
+    - [POST `/notification/email/invite`](#post-notificationemailinvite)
+    - [POST `/notification/email/leave`](#post-notificationemailleave)
+    - [GET `/notification/run-job`](#get-notificationrun-job)
 
 ## Authentifizierung Service
 
@@ -195,12 +197,12 @@ Bei Änderung interpoliert der Server die Lautstärke sanft (ca. 600ms), sodass 
 ## Notification Service
 
 ### POST `/notification/signal/invite`
-Den einzigen Endpunkt den dieser Service kriegt ist der `/notification/signal/invite` Endpunkt. Der Zweck davon ist das man ohne Authentifizierung den Service in die Signal Gruppe einladen kann.
+Dieser Endpunkt ist dazu da, dass man ohne Authentifizierung den Service in eine Signal Gruppe einladen kann.
 
 **Body**
 ```json
 {
-    "singalgroupId": "string"
+    "groupId": "string"
 }
 ```
 
@@ -218,7 +220,7 @@ Für den Endpunkt `/notification/signal/invite` brauchen wir auch einen Endpunkt
 **Body**
 ```json
 {
-    "singalgroupId": "string"
+    "groupId": "string"
 }
 ```
 
@@ -230,8 +232,44 @@ Für den Endpunkt `/notification/signal/invite` brauchen wir auch einen Endpunkt
 }
 ```
 
-### GET `/notification/signal/run-job`
-Dieser Endpunkt dient dazu, den Batch-Job erneut auszuführen, wenn etwas schiefgelaufen ist oder zu Testzwecken.
+### POST `/notification/email/invite`
+Mit diesem Endpunkt kann man eine E-Mail-Adresse für Benachrichtigungen hinterlegen. Bei der Registrierung wird der aktuelle WaveToken direkt per Mail an diese Adresse geschickt.
+
+**Body**
+```json
+{
+    "email": "user@example.com"
+}
+```
+
+**Response**
+```json
+{
+    "status": 201,
+    "message": "Email recipient was Successfully added"
+}
+```
+
+### POST `/notification/email/leave`
+Dieser Endpunkt ist dazu da, eine zuvor registrierte E-Mail-Adresse wieder aus der Notification-Liste zu entfernen.
+
+**Body**
+```json
+{
+    "email": "user@example.com"
+}
+```
+
+**Response**
+```json
+{
+    "status": 200,
+    "message": "Email recipient was Successfully deleted"
+}
+```
+
+### GET `/notification/run-job`
+Dieser Endpunkt dient dazu, den Batch-Job erneut auszuführen, wenn etwas schiefgelaufen ist oder zu Testzwecken. Der Job generiert (falls nötig) einen neuen WaveToken und verschickt ihn an alle hinterlegten Signal-Gruppen und E-Mail-Empfänger.
 
 **Response**
 ```json

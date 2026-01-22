@@ -1,6 +1,6 @@
 import db from "../database/DatabaseLogic.js";
 import { getMonthlyCode } from "../middleware/WaveTokenLogic.js";
-import { listGroups, sendMessageToGroup } from "./NotificationLogic.js";
+import { listGroups, sendMessageToGroup, listEmailRecipients, sendEmailNotification } from "./NotificationLogic.js";
 import { tokenExists, getStoredToken, storeWaveToken } from "../database/DatabaseLogic.js";
 
 const GROUPS_TABLE = "signal_notificationgroup";
@@ -62,6 +62,23 @@ export async function runNotificationJob(force = false) {
       if (!res.ok) console.warn(`NotificationJob: failed to send to ${g}`, res);
     } catch (err) {
       console.error("Error sending to group", g, err);
+    }
+  }
+
+  // Fetch all email recipients
+  let emails = [];
+  try {
+    emails = await listEmailRecipients();
+  } catch (err) {
+    console.error("NotificationJob: failed to list email recipients:", err);
+  }
+
+  for (const e of emails) {
+    try {
+      const res = await sendEmailNotification(e, message);
+      if (!res.ok) console.warn(`NotificationJob: failed to send email to ${e}`, res);
+    } catch (err) {
+      console.error("Error sending email to", e, err);
     }
   }
 

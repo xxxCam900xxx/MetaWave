@@ -68,8 +68,22 @@ SIGNAL_FROM_NUMBER=+41798878717
 # Standard notification text
 STANDARD_NOTIFICATION_MESSAGE=Neuer WaveToken wurde generiert. Verwende ihn zum Login.
 
+# --- E-Mail (notifications) configuration ---
+# SMTP settings (z.B. Hostpoint)
+SMTP_HOST=mail.hostpoint.ch
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=<dein-hostpoint-login>
+SMTP_PASS=<dein-hostpoint-passwort>
+
+# Absender-Adresse für Benachrichtigungs-Mails
+EMAIL_FROM="MetaWave <no-reply@deine-domain.tld>"
+
+# Optional: Betreffzeile für E-Mail-Notifications
+EMAIL_NOTIFICATION_SUBJECT=Dein neuer MetaWave WaveToken
+
 # Playlist URL for the downloader service
-PLAYLIST_URL: "https://www.youtube.com/playlist?list=PLYfrfvAfnsDnKbAvlaQzHTxwToq0m5jMj"
+PLAYLIST_URL="https://www.youtube.com/playlist?list=PLYfrfvAfnsDnKbAvlaQzHTxwToq0m5jMj"
 ```
 
 ## Step 2 | Docker Container starten

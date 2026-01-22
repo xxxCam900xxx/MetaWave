@@ -15,9 +15,9 @@
     "swagger-ui-express": "^5.0.1",
     "ws": "^8.19.0",
     "jsonwebtoken": "^9.0.0",
-    "yamljs": "^0.3.0"
-    ,
-    "node-cron": "^3.0.2"
+    "yamljs": "^0.3.0",
+    "node-cron": "^3.0.2",
+    "nodemailer": "^6.9.13"
   },
   "devDependencies": {
     "ngrok": "^5.0.0-beta.2"
