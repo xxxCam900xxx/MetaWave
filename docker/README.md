@@ -154,5 +154,6 @@ curl -i -X POST http://localhost:5000/v1/send \
 ## Step 3 | Start Coding!
 
 Die folgenden Ports werden verwendet:
-- `:8000` -> (API) | [Radio & Auth Service](http://localhost:8000)
-- `:80` -> (Client) | [WebApp](http://localhost:80)
+- `:8000` → (API) | [Radio & Auth Service](http://localhost:8000)
+- `:80` → (Client) | [WebApp](http://localhost:80)
+- `5000` → Signal REST API
