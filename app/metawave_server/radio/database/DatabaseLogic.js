@@ -66,7 +66,10 @@ export async function storeWaveToken(token) {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
-  await execute(`INSERT INTO wave_tokens (token, year, month) VALUES (?, ?, ?)`, [token, year, month]);
+  await execute(
+    `INSERT INTO wave_tokens (token, year, month) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE token = ?`,
+    [token, year, month, token]
+  );
 }
 
 export default {

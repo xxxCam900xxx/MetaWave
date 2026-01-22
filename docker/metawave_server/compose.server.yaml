@@ -16,7 +16,10 @@ services:
     image: bbernhard/signal-cli-rest-api:latest
     container_name: signal-api
     environment:
-      - MODE=json-rpc
+      - MODE=rest       
+      - PORT=8000       
+    ports:
+      - "5000:8000"     
     volumes:
       - signal-data:/home/.local/share/signal-cli
     restart: unless-stopped

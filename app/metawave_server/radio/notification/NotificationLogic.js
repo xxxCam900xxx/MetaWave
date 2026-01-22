@@ -49,10 +49,53 @@ function sendViaSignalCli(groupId, message) {
   });
 }
 
+async function sendViaSignalRest(groupId, message) {
+  const base = process.env.SIGNAL_REST_API_URL || null;
+  if (!base) return { ok: false, reason: "NO_SIGNAL_REST_API_URL" };
+
+  const cleanBase = base.replace(/\/$/, "");
+  const sendPath = `${cleanBase}/v1/send`;
+  const groupPath = `${cleanBase}/v1/groups/${encodeURIComponent(groupId)}/send`;
+
+  if (typeof fetch !== "function") {
+    try {
+      const { default: fetchPoly } = await import("node-fetch");
+      global.fetch = fetchPoly;
+    } catch (err) {
+      return { ok: false, reason: "NO_FETCH_AVAILABLE", error: String(err) };
+    }
+  }
+
+  const senderNumber = process.env.SIGNAL_FROM_NUMBER || process.env.SIGNAL_NUMBER || null;
+
+  try {
+    // try /v1/send (signal-cli-rest-api common endpoint)
+    // required body: { message, number, recipients }
+    let payload = { message, recipients: [groupId] };
+    if (senderNumber) payload.number = senderNumber;
+
+    let res = await fetch(sendPath, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const text = await res.text();
+    return { ok: res.ok, status: res.status, output: text };
+  } catch (err) {
+    return { ok: false, reason: "REQUEST_FAILED", error: String(err) };
+  }
+}
+
 export async function sendMessageToGroup(groupId, message) {
+  if (process.env.SIGNAL_REST_API_URL) {
+    return await sendViaSignalRest(groupId, message);
+  }
+
   if (process.env.SIGNAL_CLI_CMD) {
     return await sendViaSignalCli(groupId, message);
   }
+
   console.log(`(NotificationLogic) Would send to ${groupId}: ${message}`);
   return { ok: true, output: "logged" };
 }

@@ -6,16 +6,19 @@ START TRANSACTION;
 SET
   time_zone = "+00:00";
 
-USE database_metawave;
+-- Create Database (if not exists)
+CREATE DATABASE IF NOT EXISTS metawave_db;
 
--- Create Tables
-CREATE TABLE signal_notificationgroup (
+USE metawave_db;
+
+-- Create Tables (if not exists)
+CREATE TABLE IF NOT EXISTS signal_notificationgroup (
   id INT AUTO_INCREMENT PRIMARY KEY,
   group_id VARCHAR(255) NOT NULL UNIQUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE wave_tokens (
+CREATE TABLE IF NOT EXISTS wave_tokens (
   id INT AUTO_INCREMENT PRIMARY KEY,
   token VARCHAR(255) NOT NULL,
   year INT NOT NULL,

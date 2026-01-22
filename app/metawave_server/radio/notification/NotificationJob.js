@@ -5,13 +5,13 @@ import { tokenExists, getStoredToken, storeWaveToken } from "../database/Databas
 
 const GROUPS_TABLE = "signal_notificationgroup";
 
-export async function runNotificationJob() {
+export async function runNotificationJob(force = false) {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
 
   try {
-    if (await tokenExists(year, month)) {
+    if (!force && await tokenExists(year, month)) {
       console.log("NotificationJob: wave token already generated for this month — skipping job.");
       const existing = await getStoredToken(year, month);
       return existing; // only return stored value
@@ -20,11 +20,27 @@ export async function runNotificationJob() {
     console.error("NotificationJob: failed to check existing tokens:", err);
   }
 
-  const token = getMonthlyCode();
+  let token;
   try {
-    await storeWaveToken(token);
+    if (force) {
+      const existing = await getStoredToken(year, month);
+      if (existing) {
+        token = existing; // reuse existing token when forcing
+      } else {
+        token = getMonthlyCode();
+        await storeWaveToken(token);
+      }
+    } else {
+      token = getMonthlyCode();
+      try {
+        await storeWaveToken(token);
+      } catch (err) {
+        console.error("Failed to store wave token:", err);
+      }
+    }
   } catch (err) {
-    console.error("Failed to store wave token:", err);
+    console.error("NotificationJob: error while preparing/storing token:", err);
+    if (!token) token = getMonthlyCode();
   }
 
   // Standard message

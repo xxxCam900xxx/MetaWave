@@ -42,8 +42,8 @@ router.post("/signal/leave", async (req, res) => {
 // POST /signal/run-job
 router.get("/run-job", authMiddleware, async (req, res) => {
   try {
-    await runNotificationJob();
-    res.status(200).json({ status: 200, message: "Signal Notification job executed" });
+    await runNotificationJob(true);
+    res.status(200).json({ status: 200, message: "Signal Notification job executed (forced)" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Job failed" });
