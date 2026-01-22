@@ -1,9 +1,8 @@
 import express from "express";
-import { RadioEngine } from "./RadioEngine.js";
+import { radio } from "./RadioEngine.js";
 import { authMiddleware } from "../middleware/AuthLogic.js";
 
 const router = express.Router();
-const radio = new RadioEngine();
 
 /* ==========================
    Protected Routes
@@ -18,26 +17,14 @@ router.get("/", (req, res) => {
   radio.addClient(res);
 });
 
-// GET /stream/metadata
-router.get("/metadata", (req, res) => {
-  res.json(radio.getMeta());
-});
+// Metadata endpoints
+router.get("/meta/currentsong", (req, res) => res.json({ status: 200, message: "Displaying the metadata for the currently playing song", metadata: radio.getMeta() }));
+router.get("/meta/queue", (req, res) => res.json({ status: 200, message: "Displaying the metadata for all songs in Queue", metadata: radio.getQueueState().queue }));
 
-// GET /stream/queue
-router.get("/queue", (req, res) => {
-  res.json(radio.getQueueState());
-});
-
-// POST /stream/control/skip
-router.post("/control/skip", (req, res) => {
-  radio.skip();
-  res.json({ ok: true });
-});
-
-// POST /stream/control/shuffle
-router.post("/control/shuffle", (req, res) => {
-  radio.shuffleRemaining();
-  res.json({ ok: true });
-});
+// Control endpoints (support GET for client convenience)
+router.get("/control/skip", (req, res) => { radio.skip(); res.json({ status: 200, message: "Song has been skipped" }); });
+router.get("/control/previous", (req, res) => { radio.previous(); res.json({ status: 200, message: "Previous song will be played" }); });
+router.get("/control/shuffle", (req, res) => { radio.shuffleRemaining(); res.json({ status: 200, message: "Queue shuffled" }); });
+router.get("/control/jumpto/:index", (req, res) => { radio.jumpto(req.params.index); res.json({ status: 200, message: `Jumped to Song Index ${req.params.index}` }); });
 
 export default router;

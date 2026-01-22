@@ -9,10 +9,19 @@ SET
 USE database_metawave;
 
 -- Create Tables
-CREATE TABLE notfiy_signalgroups (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    group_id VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE signal_notificationgroup (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  group_id VARCHAR(255) NOT NULL UNIQUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE wave_tokens (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  token VARCHAR(255) NOT NULL,
+  year INT NOT NULL,
+  month INT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_month (year, month)
 );
 
 COMMIT;

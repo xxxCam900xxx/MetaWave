@@ -1,9 +1,12 @@
 import express from "express";
-import { login, currentcode } from "./AuthLogic.js";
+import { login, validate } from "./AuthLogic.js";
 
 const router = express.Router();
 
-// GET /auth/login
-router.get("/login", login);
+// POST /auth/login
+router.post("/login", login);
+
+// POST /auth/validate
+router.post("/validate", validate);
 
 export default router;

@@ -18,8 +18,9 @@ Hier werden alle Endpunkte mit ihrem Zweck sowie allen möglichen `Headern`, `Pa
     - [GET `/stream/control/shuffle`](#get-streamcontrolshuffle)
     - [GET `/stream/control/jumpto/${index}`](#get-streamcontroljumptoindex)
   - [Notification Service](#notification-service)
-    - [POST `/signal/invite`](#post-signalinvite)
-    - [POST `/signal/leave`](#post-signalleave)
+    - [POST `/notification/signal/invite`](#post-notificationsignalinvite)
+    - [POST `/notification/signal/leave`](#post-notificationsignalleave)
+    - [GET `/notification/signal/run-job`](#get-notificationsignalrun-job)
 
 ## Authentifizierung Service
 
@@ -92,7 +93,7 @@ Der Endpunkt gibt die Metadaten des derzeit abgespielten Songs aus dem aktuellen
         "cover": "string", // URL
         "duration": 100,
         "elapsed": 10,
-        "origin": "string" // Youtube or Spotify
+        "origin": "string", // Youtube or Spotify
     }
 }
 ```
@@ -111,7 +112,9 @@ Dieser Endpunkt gibt die Metadaten von allen Songs aus in der Queue. In diesem E
         "title": "string",
         "author": "string",
         "cover": "string", // URL
-        "origin": "string" // Youtube or Spotify
+        "origin": "string", // Youtube or Spotify
+        "isPlaying": true,
+        "hasBeenPlayed": true
         }
     ]
 }
@@ -163,8 +166,8 @@ Mit diesem Endpunkt kann man in der Warteschlange zum gewünschten Lied springen
 
 ## Notification Service
 
-### POST `/signal/invite`
-Den einzigen Endpunkt den dieser Service kriegt ist der `/signal/invite` Endpunkt. Der Zweck davon ist das man ohne Authentifizierung den Service in die Signal Gruppe einladen kann.
+### POST `/notification/signal/invite`
+Den einzigen Endpunkt den dieser Service kriegt ist der `/notification/signal/invite` Endpunkt. Der Zweck davon ist das man ohne Authentifizierung den Service in die Signal Gruppe einladen kann.
 
 **Body**
 ```json
@@ -181,8 +184,8 @@ Den einzigen Endpunkt den dieser Service kriegt ist der `/signal/invite` Endpunk
 }
 ```
 
-### POST `/signal/leave`
-Für den Endpunkt `/signal/invite` brauchen wir auch einen Endpunkt der dazu da ist das man die Notification von der Signal Gruppe wieder entfernen kann.
+### POST `/notification/signal/leave`
+Für den Endpunkt `/notification/signal/invite` brauchen wir auch einen Endpunkt der dazu da ist das man die Notification von der Signal Gruppe wieder entfernen kann.
 
 **Body**
 ```json
@@ -196,5 +199,16 @@ Für den Endpunkt `/signal/invite` brauchen wir auch einen Endpunkt der dazu da 
 {
     "status": 200,
     "message": "SignalGroup was Successfully deleted"
+}
+```
+
+### GET `/notification/signal/run-job`
+Dieser Endpunkt dient dazu, den Batch-Job erneut auszuführen, wenn etwas schiefgelaufen ist oder zu Testzwecken.
+
+**Response**
+```json
+{
+    "status": 200,
+    "message": "Signal Notification job executed"
 }
 ```

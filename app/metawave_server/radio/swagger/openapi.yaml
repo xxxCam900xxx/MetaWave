@@ -1,20 +1,28 @@
 openapi: 3.0.3
 info:
   title: MetaWave Live Radio API
-  version: 0.10.1
+  version: 2.0.0
   description: API für MetaWave Live Radio. Public- und Protected-Endpunkte getrennt.
 
 servers:
   - url: http://localhost:8000
     description: Lokaler Entwicklungsserver
 
+tags:
+  - name: Authentication
+    description: Endpunkte für Login und Token-Validierung
+  - name: Radio
+    description: Live-Radio-Stream und Steuerung
+  - name: Notification - Signal
+    description: Signal-spezifische Notification-Routen (invite/leave/run-job)
+
 components:
   securitySchemes:
-    MetaWaveToken:
-      type: apiKey
-      in: header
-      name: X-METAWAVE-TOKEN
-      description: Temporärer Token, der nach /login erhalten wird
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Authorization header mit Bearer JWT-Token (aus /auth/login)
 
   schemas:
     StreamMeta:
@@ -51,8 +59,9 @@ components:
     QueueItem:
       type: object
       properties:
-        filename:
+        song:
           type: string
+          description: Dateiname der Audiodatei
           example: song4.mp3
         title:
           type: string
@@ -88,125 +97,68 @@ components:
           items:
             $ref: "#/components/schemas/QueueItem"
 
+    InviteRequest:
+      type: object
+      properties:
+        groupId:
+          type: string
+          example: "12345-abcde"
+
+    InviteResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 201
+        message:
+          type: string
+          example: SignalGroup was Successfully added
+        result:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            groupId:
+              type: string
+              example: "12345-abcde"
+
+    LeaveRequest:
+      type: object
+      properties:
+        groupId:
+          type: string
+
+    LeaveResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: SignalGroup was Successfully deleted
+
+    RunJobResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: Signal Notification job executed
+
 paths:
-
   # ======================
-  # Public Endpoints
+  # Authentication
   # ======================
-  /login:
-    get:
-      summary: Login mit aktuellem Monatscode
-      description: Gibt einen temporären Token zurück, der für alle geschützten Endpunkte verwendet werden muss.
-      parameters:
-        - name: code
-          in: query
-          required: true
-          schema:
-            type: string
-            example: MW202601-RADIO
-      responses:
-        '200':
-          description: Erfolgreicher Login
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  token:
-                    type: string
-                    example: 53AC31EF
-                  expiresIn:
-                    type: integer
-                    example: 900
-        '401':
-          description: Ungültiger Code
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: Invalid code
-
-  # ======================
-  # Protected Endpoints
-  # ======================
-  /stream:
-    get:
-      summary: Audio-Stream starten
-      description: Liefert den Live-Audio-Stream.
-      security:
-        - MetaWaveToken: []
-      responses:
-        '200':
-          description: Audio Stream (MPEG)
-          content:
-            audio/mpeg:
-              schema:
-                type: string
-                format: binary
-        '401':
-          description: Unauthorized
-
-  /skip:
+  /auth/login:
     post:
-      summary: Aktuellen Song überspringen
-      description: Beendet den aktuell laufenden Song sofort.
-      security:
-        - MetaWaveToken: []
-      responses:
-        '200':
-          description: Skip erfolgreich
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                    example: true
-        '401':
-          description: Unauthorized
-
-  /meta:
-    get:
-      summary: Metadaten des aktuell laufenden Songs
-      description: Liefert Metadaten des Songs inklusive Titel, Autor, Cover, Dauer und elapsed time.
-      security:
-        - MetaWaveToken: []
-      responses:
-        '200':
-          description: Aktuelle Stream-Metadaten
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/StreamMeta"
-        '401':
-          description: Unauthorized
-
-  /meta-queue:
-    get:
-      summary: Kompletter Queue-Status
-      description: Liefert die gesamte Queue in korrekter Reihenfolge inkl. aktuell spielendem Song, mit allen Metadaten.
-      security:
-        - MetaWaveToken: []
-      responses:
-        '200':
-          description: Aktueller Queue-Zustand
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/QueueState"
-        '401':
-          description: Unauthorized
-
-  /jump-to:
-    post:
-      summary: Zu einem Song in der Queue springen
-      description: Springt zu einem bestimmten Index. Noch nicht gespielte Songs bleiben erhalten.
-      security:
-        - MetaWaveToken: []
+      tags:
+        - Authentication
+      summary: Login mit Wave-Token
+      description: Erhält ein temporäres JWT-Token nach Validierung des `wavetoken` im Body.
       requestBody:
         required: true
         content:
@@ -214,41 +166,304 @@ paths:
             schema:
               type: object
               properties:
-                index:
-                  type: integer
-                  example: 5
+                wavetoken:
+                  type: string
+                  example: MW202601-RADIO
       responses:
-        '200':
-          description: Jump erfolgreich
+        "200":
+          description: Erfolgreicher Login
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  ok:
-                    type: boolean
-                    example: true
-        '400':
-          description: Ungültiger Index
-        '401':
+                  status:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: Sucessfully Logged In
+                  token:
+                    type: string
+                    example: eyJhbGciOiJI...
+        "401":
+          description: Ungültiges `wavetoken`
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Invalid wavetoken
+
+  /auth/validate:
+    post:
+      tags:
+        - Authentication
+      summary: Token validieren und erneuern
+      description: "Prüft das übergebene `Authorization: Bearer <token>` Header und gibt ein erneuertes Token zurück."
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Token gültig und erneuert
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: Token is Valid and Refreshed
+                  token:
+                    type: string
+        "401":
+          description: Ungültiges oder abgelaufenes Token
+
+  # ======================
+  # Radio
+  # ======================
+  /stream:
+    get:
+      tags:
+        - Radio
+      summary: Audio-Stream starten
+      description: Liefert den Live-Audio-Stream (dauerhafte Verbindung).
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Audio Stream (MPEG)
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+        "401":
           description: Unauthorized
 
-  /shuffle:
-    post:
-      summary: Shuffle der noch nicht gespielten Songs
-      description: Shuffelt nur die verbleibenden Songs nach dem aktuellen Track.
+  /stream/meta/currentsong:
+    get:
+      tags:
+        - Radio
+      summary: Metadaten des aktuell laufenden Songs
+      description: Liefert Metadaten des Songs inklusive Titel, Autor, Cover, Dauer und elapsed time.
       security:
-        - MetaWaveToken: []
+        - BearerAuth: []
       responses:
-        '200':
+        "200":
+          description: Aktuelle Stream-Metadaten
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: Displaying the metadata for the currently playing song
+                  metadata:
+                    $ref: "#/components/schemas/StreamMeta"
+        "401":
+          description: Unauthorized
+
+  /stream/meta/queue:
+    get:
+      tags:
+        - Radio
+      summary: Kompletter Queue-Status
+      description: Liefert die Queue-Items in Reihenfolge, inklusive aktuellem Song.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Aktueller Queue-Zustand
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: Displaying the metadata for all songs in Queue
+                  metadata:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/QueueItem"
+        "401":
+          description: Unauthorized
+
+  /stream/control/skip:
+    get:
+      tags:
+        - Radio
+      summary: Aktuellen Song überspringen
+      description: Beendet den aktuell laufenden Song sofort.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Skip erfolgreich
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: Song has been skipped
+        "401":
+          description: Unauthorized
+
+  /stream/control/previous:
+    get:
+      tags:
+        - Radio
+      summary: Vorherigen Song abspielen
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Previous erfolgreich
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: Previous song will be played
+
+  /stream/control/shuffle:
+    get:
+      tags:
+        - Radio
+      summary: Shuffle der noch nicht gespielten Songs
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
           description: Shuffle erfolgreich
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  ok:
-                    type: boolean
-                    example: true
-        '401':
-          description: Unauthorized
+                  status:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: Queue shuffled
+
+  /stream/control/jumpto/{index}:
+    get:
+      tags:
+        - Radio
+      summary: Zu einem Song in der Queue springen
+      description: Springt zu einem bestimmten Index (Path-Parameter).
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: index
+          in: path
+          required: true
+          schema:
+            type: integer
+            example: 5
+      responses:
+        "200":
+          description: Jump erfolgreich
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: Jumped to Song Index 5
+
+  # ======================
+  # Notification
+  # ======================
+  /notification/signal/invite:
+    post:
+      tags:
+        - Notification - Signal
+      summary: Signal-Gruppe einladen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteRequest"
+      responses:
+        "201":
+          description: SignalGroup hinzugefügt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteResponse"
+        "400":
+          description: Ungültige Anfrage (groupId fehlt)
+        "409":
+          description: Gruppe existiert bereits
+
+  /notification/signal/leave:
+    post:
+      tags:
+        - Notification - Signal
+      summary: Signal-Gruppe entfernen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeaveRequest"
+      responses:
+        "200":
+          description: SignalGroup entfernt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaveResponse"
+        "400":
+          description: Ungültige Anfrage (groupId fehlt)
+        "404":
+          description: Gruppe nicht gefunden
+
+  /notification/run-job:
+    get:
+      tags:
+        - Notification - Signal
+      summary: Notification Job ausführen (für Tests)
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Job ausgeführt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunJobResponse"

@@ -12,13 +12,22 @@ services:
       PLAYLIST_URL: "https://www.youtube.com/playlist?list=PLYfrfvAfnsDnKbAvlaQzHTxwToq0m5jMj"
     restart: "no"
 
+  signal-api:
+    image: bbernhard/signal-cli-rest-api:latest
+    container_name: signal-api
+    environment:
+      - MODE=json-rpc
+    volumes:
+      - signal-data:/home/.local/share/signal-cli
+    restart: unless-stopped
+
   radio:
     container_name: server
     build:
       context: ../..
       dockerfile: docker/metawave_server/dockerfile.radio
     env_file:
-        - .env
+      - .env
     volumes:
       - songs:/songs
     ports:
@@ -26,7 +35,10 @@ services:
     depends_on:
       downloader:
         condition: service_completed_successfully
+      signal-api:
+        condition: service_started
     restart: unless-stopped
 
 volumes:
   songs:
+  signal-data:

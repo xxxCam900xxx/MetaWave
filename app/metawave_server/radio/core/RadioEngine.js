@@ -120,6 +120,9 @@ export class RadioEngine extends EventEmitter {
         }
       }
 
+      // Nach jedem Trackwechsel die Queue mitsamt hasBeenPlayed/isPlaying aktualisieren
+      this.broadcastQueueUpdate();
+
       this.playNext();
     });
   }
@@ -154,6 +157,68 @@ export class RadioEngine extends EventEmitter {
     }
   }
 
+  previous() {
+    if (!this.queue.length) return;
+
+    console.log("Previous requested");
+
+    // Zielindex berechnen (eins zurück, mit Wrap zum letzten Element)
+    const targetIndex = this.currentIndex > 0 ? this.currentIndex - 1 : Math.max(0, this.queue.length - 1);
+
+    if (this.currentProcess) {
+      // currentIndex so setzen, dass nach dem ++ im exit-Handler genau targetIndex gespielt wird
+      this.currentIndex = targetIndex - 1;
+      this.currentProcess.kill("SIGKILL");
+    } else {
+      this.currentIndex = targetIndex;
+      this.playNext();
+    }
+  }
+
+  jumpto(index) {
+    const idx = Number(index);
+    if (Number.isNaN(idx) || idx < 0 || idx >= this.queue.length) {
+      console.warn("jumpto: invalid index", index);
+      return;
+    }
+
+    if (idx === this.currentIndex) return;
+
+    let targetIndex = idx;
+
+    // Wenn nach vorne gesprungen wird: Songs dazwischen wieder in die Rest-Queue packen
+    // und neu shuffeln, damit sie später wieder vorkommen.
+    if (idx > this.currentIndex) {
+      const played = this.queue.slice(0, this.currentIndex + 1);
+      const target = this.queue[idx];
+      const skipped = this.queue.slice(this.currentIndex + 1, idx);
+      const remaining = this.queue.slice(idx + 1);
+
+      const leftovers = [...skipped, ...remaining];
+
+      // Fisher-Yates Shuffle für die übrigen Songs
+      for (let i = leftovers.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [leftovers[i], leftovers[j]] = [leftovers[j], leftovers[i]];
+      }
+
+      this.queue = [...played, target, ...leftovers];
+      targetIndex = played.length; // Index des gewählten Songs in der neuen Queue
+    }
+
+    if (this.currentProcess) {
+      // currentIndex so setzen, dass nach dem automatischen ++ im exit-Handler
+      // genau der gewünschte Track gespielt wird.
+      this.currentIndex = targetIndex - 1;
+      this.currentProcess.kill("SIGKILL");
+    } else {
+      this.currentIndex = targetIndex;
+      this.playNext();
+    }
+
+    this.broadcastQueueUpdate();
+  }
+
   getMeta() {
     const song = this.queue[this.currentIndex];
     return {
@@ -179,7 +244,8 @@ export class RadioEngine extends EventEmitter {
         duration: song.duration,
         cover: song.cover,
         index,
-        isPlaying: index === this.currentIndex
+        isPlaying: index === this.currentIndex,
+        hasBeenPlayed: index < this.currentIndex
       }))
     };
   }
@@ -208,3 +274,5 @@ export class RadioEngine extends EventEmitter {
     }
   }
 }
+
+export const radio = new RadioEngine();
