@@ -60,7 +60,7 @@ Die Entscheidung, den Speicher nicht zu spiegeln, liegt darin, dass ich auf mein
   - Man kann hat die volle Kontrolle über den MainStream und kann skippen, lautstärke regulieren, auf ein bestimmten song springen, die zu abgespielten songs zurück springen, die noch nicht abgespielten Songs neu shuffeln.
   - Der MainStream wir bei jeder neuen Queue neu geshuffelt.
 
-Genaueren Informationen zu den Endpunkten finden Sie im ENDPOINTS.md
+Genaueren Informationen zu den Endpunkten finden Sie im [ENDPOINTS.md](/concept/ENDPOINTS.md) 
 
 ## Design
 Es soll ein simples Youtube Musik & Spotify Design haben, sodass man es auf Desktop und auf dem Handy benutzen kann. Der Client ist Mobile first gebaut.
