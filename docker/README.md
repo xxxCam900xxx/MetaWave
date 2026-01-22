@@ -67,6 +67,9 @@ SIGNAL_FROM_NUMBER=+41798878717
 
 # Standard notification text
 STANDARD_NOTIFICATION_MESSAGE=Neuer WaveToken wurde generiert. Verwende ihn zum Login.
+
+# Playlist URL for the downloader service
+PLAYLIST_URL: "https://www.youtube.com/playlist?list=PLYfrfvAfnsDnKbAvlaQzHTxwToq0m5jMj"
 ```
 
 ## Step 2 | Docker Container starten

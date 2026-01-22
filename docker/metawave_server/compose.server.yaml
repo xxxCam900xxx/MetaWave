@@ -8,8 +8,8 @@ services:
       dockerfile: docker/metawave_server/dockerfile.downloader
     volumes:
       - songs:/songs
-    environment:
-      PLAYLIST_URL: "https://www.youtube.com/playlist?list=PLYfrfvAfnsDnKbAvlaQzHTxwToq0m5jMj"
+    env_file:
+      - .env
     restart: "no"
 
   signal-api:
