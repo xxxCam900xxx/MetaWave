@@ -1,6 +1,7 @@
 import os
 import subprocess
 import json
+import time
 
 PLAYLIST_URL = os.environ["PLAYLIST_URL"]
 SONGS_DIR = "/songs"
@@ -19,7 +20,62 @@ cmd = [
     PLAYLIST_URL
 ]
 
-subprocess.run(cmd, check=True)
+MAX_RETRIES = 5
+INITIAL_DELAY_SECONDS = 60
+
+def is_rate_limit_error(stderr: str) -> bool:
+    """Grobe Heuristik, um Rate-Limit-Fehler von yt-dlp zu erkennen."""
+
+    if not stderr:
+        return False
+
+    lower = stderr.lower()
+    candidates = [
+        "rate limit",
+        "too many requests",
+        "http error 429",
+        "429 too many",
+    ]
+    return any(token in lower for token in candidates)
+
+attempt = 0
+delay = INITIAL_DELAY_SECONDS
+
+while True:
+    attempt += 1
+    print(f"[downloader] Starte yt-dlp (Versuch {attempt}/{MAX_RETRIES})...")
+
+    result = subprocess.run(
+        cmd,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode == 0:
+        print("[downloader] yt-dlp erfolgreich abgeschlossen.")
+        break
+
+    stderr = result.stderr or ""
+    stdout = result.stdout or ""
+    print(f"[downloader] yt-dlp fehlgeschlagen (Returncode {result.returncode}).")
+    if stdout:
+        print("[downloader] stdout:\n" + stdout)
+    if stderr:
+        print("[downloader] stderr:\n" + stderr)
+
+    if attempt >= MAX_RETRIES:
+        if is_rate_limit_error(stderr):
+            print("[downloader] Max Retries erreicht, Rate-Limit erkannt. Beende erfolgreich, damit Radio starten kann.")
+            break
+        else:
+            print("[downloader] Kein weiterer Retry (Maximum erreicht oder kein Rate-Limit-Fehler). Breche ab.")
+            result.check_returncode()  # wirft CalledProcessError
+
+    print(f"[downloader] Rate-Limit erkannt. Warte {delay} Sekunden vor erneutem Versuch...")
+    time.sleep(delay)
+    delay *= 2  # Exponentielles Backoff
+
 
 # Optional: Metadaten zusammenfassen
 metadata = []

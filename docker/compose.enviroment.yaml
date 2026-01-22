@@ -2,4 +2,3 @@ name: metawave
 include:
   - metawave_database/compose.database.yaml
   - metawave_server/compose.server.yaml
-  - metawave_app/compose.app.yaml
