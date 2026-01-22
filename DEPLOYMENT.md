@@ -26,7 +26,7 @@ sudo apt-get update && sudo apt-get upgrade -y
 curl -fsSL https://get.docker.com | sudo sh
 
 # Den aktuellen Benutzer zur docker-Gruppe hinzufügen
-sudo usermod -aG docker "$USER"
+sudo usermod -aG docker "metawave"
 
 # (optional) Ab- und wieder anmelden, damit die Gruppenmitgliedschaft greift
 # oder: exec su -l $USER
@@ -47,16 +47,31 @@ Stelle sicher, dass **mindestens Version 2.20+** verwendet wird, damit die `incl
 
 ## 2. Projekt auf die VM bringen
 
-### 2.1 Repo auf der VM klonen (empfohlen)
+### 2.1 Repo auf der VM klonen (empfohlen, per SSH)
+
+Voraussetzung: Auf der VM ist ein SSH-Key vorhanden und im Git-Provider (z. B. GitHub, GitLab) hinterlegt.
+
+Kurze Schritte:
 
 ```bash
 cd ~
-# Falls dein Repo privat ist, passe die URL entsprechend an
-git clone <DEIN_GIT_REPO_URL> MetaWave
+
+# (optional) neuen SSH-Key erzeugen, falls noch keiner existiert
+ssh-keygen -t ed25519 -C "metawave-vm"    # Fragen mit Enter bestätigen
+
+# Public Key anzeigen und im Git-Provider als Deploy-/SSH-Key hinterlegen
+cat ~/.ssh/id_ed25519.pub
+
+# Verbindung zum Git-Provider testen (für GitHub z. B.)
+ssh -T git@github.com
+
+# Repo per SSH klonen (Beispiel)
+git clone git@gitserver:<ORG>/<REPO>.git MetaWave
+
 cd MetaWave/docker
 ```
 
-Alternativ kannst du das Projekt auch als Zip/SCP auf die VM kopieren und unter z. B. `/opt/MetaWave` ablegen. In allen Befehlen unten wird angenommen, dass du im Verzeichnis `MetaWave/docker` arbeitest.
+Passe `git@gitserver:<ORG>/<REPO>.git` an dein echtes Repository an. Alternativ kannst du das Projekt auch als Zip/SCP auf die VM kopieren und unter z. B. `/opt/MetaWave` ablegen. In allen Befehlen unten wird angenommen, dass du im Verzeichnis `MetaWave/docker` arbeitest.
 
 ---
 
@@ -156,15 +171,30 @@ Die Zugangsdaten müssen mit den Werten in `metawave_server/.env` (`DB_*`) über
 
 ## 4. Docker-Services auf der VM starten
 
-Wechsle ins Docker-Verzeichnis und starte alle Dienste:
+Wechsle ins Docker-Verzeichnis:
 
 ```bash
 cd ~/MetaWave/docker
+```
 
-docker compose -f compose.enviroment.yaml up --build -d
+Starte die Services nacheinander in folgender Reihenfolge:
+
+```bash
+# 1) Datenbank
+docker compose -f compose.enviroment.yaml up -d database
+
+# 2) Signal REST API
+docker compose -f compose.enviroment.yaml up -d signal-api
+
+# 3) Downloader (läuft einmal durch und beendet sich danach)
+docker compose -f compose.enviroment.yaml up downloader
+
+# 4) Radio / API
+docker compose -f compose.enviroment.yaml up -d radio
 ```
 
 - `-d` startet die Container im Hintergrund (empfohlen für eine VM).
+- Beim **ersten Deployment** kannst du optional `--build` ergänzen (z. B. `up --build -d database`), damit die Images neu gebaut werden.
 - Die Compose-Datei inkludiert:
   - [docker/metawave_database/compose.database.yaml](docker/metawave_database/compose.database.yaml)
   - [docker/metawave_server/compose.server.yaml](docker/metawave_server/compose.server.yaml)
