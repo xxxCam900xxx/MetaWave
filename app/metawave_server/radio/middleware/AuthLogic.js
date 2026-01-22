@@ -1,4 +1,4 @@
-import { getMonthlyCode } from "./codeGenerator.js";
+import { getMonthlyCode } from "./WaveTokenLogic.js";
 
 export const TOKEN_EXPIRY = 15 * 60 * 1000;
 export const TOKENS = new Map();
