@@ -438,7 +438,7 @@ paths:
       tags:
         - Radio
       summary: Globale Lautstärke setzen
-      description: Setzt die globale Lautstärke (Prozent). Gültiger Bereich: 0-200.
+      description: "Setzt die globale Lautstärke (Prozent). Gültiger Bereich: 0-200."
       security:
         - BearerAuth: []
       parameters:
