@@ -1,10 +1,123 @@
-import { Text } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
+import { API_BASE } from "./config";
+import { loginStyles as styles } from "./styles/loginStyles";
 
 export default function Index() {
+  const router = useRouter();
+  const [wavetoken, setWaveToken] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    const checkExistingToken = async () => {
+      try {
+        const stored = await AsyncStorage.getItem("authToken");
+        if (!stored) {
+          setCheckingSession(false);
+          return;
+        }
+
+        const res = await fetch(`${API_BASE}/auth/validate`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${stored}`,
+          },
+        });
+
+        if (res.ok) {
+          const json = await res.json();
+          if (json?.token) {
+            await AsyncStorage.setItem("authToken", json.token);
+          }
+          router.replace("/player");
+          return;
+        }
+
+        await AsyncStorage.removeItem("authToken");
+      } catch (err) {
+        // Silent fail, user can log in manually
+      } finally {
+        setCheckingSession(false);
+      }
+    };
+
+    checkExistingToken();
+  }, [router]);
+
+  const handleLogin = async () => {
+    if (!wavetoken.trim()) {
+      Alert.alert("Fehlender Code", "Bitte gib deinen WaveToken ein.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ wavetoken: wavetoken.trim() }),
+      });
+
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        const message = json?.message || "Login fehlgeschlagen";
+        Alert.alert("Login Fehler", message);
+        return;
+      }
+
+      if (!json?.token) {
+        Alert.alert("Login Fehler", "Antwort vom Server ohne Token.");
+        return;
+      }
+
+      await AsyncStorage.setItem("authToken", json.token);
+      router.replace("/player");
+    } catch (err) {
+      Alert.alert("Netzwerkfehler", "Keine Verbindung zum MetaWave Radio Server.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (checkingSession) {
+    return (
+      <SafeAreaView style={styles.centered}>
+        <ActivityIndicator size="large" />
+        <Text style={styles.loadingText}>Verbindung wird geprüft…</Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={{ flex: 1 }}>
-      <Text>Content is in safe area.</Text>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.content}>
+        <Text style={styles.title}>MetaWave Login</Text>
+        <Text style={styles.subtitle}>Gib deinen aktuellen WaveToken ein, um den Live Radio Stream zu hören.</Text>
+
+        <TextInput
+          style={styles.input}
+          value={wavetoken}
+          onChangeText={setWaveToken}
+          placeholder="WaveToken (z.B. MW202601-RADIO)"
+          autoCapitalize="characters"
+          autoCorrect={false}
+        />
+
+        <TouchableOpacity style={styles.loginButton} onPress={handleLogin} disabled={loading}>
+          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.loginText}>Einloggen & Hören</Text>}
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.linkButton} onPress={() => router.push("/invite")}>
+          <Text style={styles.linkText}>Keine Notification? Signal Invite öffnen</Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }
