@@ -15,6 +15,13 @@ export class RadioEngine extends EventEmitter {
     this.currentProcess = null;
     this.clients = new Set();   // HTTP Clients für /stream
     this.wsClients = new Set(); // WebSocket Clients
+    this.volumePercent = 100; // global volume in percent (100 = normal)
+    this._restartSame = false; // internal flag to restart same track (used when applying volume)
+    this.currentDecoder = null;
+    this.currentEncoder = null;
+    this.currentProcessElapsedTime = 0;
+    this.currentVolumeMultiplier = this.volumePercent / 100;
+    this._volumeSmoothInterval = null;
     this.loadQueue();
   }
 
@@ -78,39 +85,75 @@ export class RadioEngine extends EventEmitter {
     const startTime = Date.now();
     this.emit("meta", this.getMeta());
 
-    const ffmpegArgs = [
+    // Decoder -> PCM -> process in JS -> Encoder -> MP3
+    const decoderArgs = [
       "-re",
       "-i", filePath,
-      "-f", "mp3",
-      "-b:a", "128k",
-      "-content_type", "audio/mpeg",
+      "-f", "s16le",
+      "-ar", "44100",
+      "-ac", "2",
       "pipe:1"
     ];
 
-    this.currentProcess = spawn("ffmpeg", ffmpegArgs);
-    this.currentProcess.elapsedTime = 0;
+    const encoderArgs = [
+      "-f", "s16le",
+      "-ar", "44100",
+      "-ac", "2",
+      "-i", "pipe:0",
+      "-f", "mp3",
+      "-b:a", "128k",
+      "pipe:1"
+    ];
 
-    this.currentProcess.stdout.on("data", chunk => {
-      for (const res of this.clients) res.write(chunk);
-      for (const ws of this.wsClients) {
-        if (ws.readyState === WebSocket.OPEN) ws.send(chunk);
+    const decoder = spawn("ffmpeg", decoderArgs, { stdio: ["ignore", "pipe", "pipe"] });
+    const encoder = spawn("ffmpeg", encoderArgs, { stdio: ["pipe", "pipe", "pipe"] });
+
+    this.currentDecoder = decoder;
+    this.currentEncoder = encoder;
+    this.currentProcessElapsedTime = 0;
+
+    const processPCM = (buffer, multiplier) => {
+      const out = Buffer.allocUnsafe(buffer.length);
+      for (let i = 0; i + 1 < buffer.length; i += 2) {
+        const sample = buffer.readInt16LE(i);
+        let v = Math.round(sample * multiplier);
+        if (v > 32767) v = 32767;
+        if (v < -32768) v = -32768;
+        out.writeInt16LE(v, i);
       }
-      this.currentProcess.elapsedTime = Math.floor((Date.now() - startTime) / 1000);
+      return out;
+    };
+
+    decoder.stdout.on("data", (chunk) => {
+      try {
+        const processed = processPCM(chunk, (this.currentVolumeMultiplier ?? (this.volumePercent / 100)));
+        encoder.stdin.write(processed);
+      } catch (e) {
+        // ignore
+      }
+      this.currentProcessElapsedTime = Math.floor((Date.now() - startTime) / 1000);
     });
 
-    this.currentProcess.stderr.on("data", chunk => {
-      console.error(chunk.toString());
+    encoder.stdout.on("data", (mp3chunk) => {
+      for (const res of this.clients) try { res.write(mp3chunk); } catch (e) {}
+      for (const ws of this.wsClients) {
+        if (ws.readyState === WebSocket.OPEN) try { ws.send(mp3chunk); } catch (e) {}
+      }
     });
 
-    this.currentProcess.on("exit", () => {
-      this.currentProcess = null;
-      this.currentIndex++;
+    const onExit = () => {
+      this.currentDecoder = null;
+      this.currentEncoder = null;
 
-      // Queue Ende erreicht
-      if (this.currentIndex >= this.queue.length) {
-        console.log("Ende der Queue erreicht, shuffle und beginne von vorn.");
-        this.shuffleQueue();
-        this.currentIndex = 0;
+      if (this._restartSame) {
+        this._restartSame = false;
+      } else {
+        this.currentIndex++;
+        if (this.currentIndex >= this.queue.length) {
+          console.log("Ende der Queue erreicht, shuffle und beginne von vorn.");
+          this.shuffleQueue();
+          this.currentIndex = 0;
+        }
       }
 
       const meta = this.getMeta();
@@ -120,14 +163,57 @@ export class RadioEngine extends EventEmitter {
         }
       }
 
-      // Nach jedem Trackwechsel die Queue mitsamt hasBeenPlayed/isPlaying aktualisieren
       this.broadcastQueueUpdate();
-
       this.playNext();
+    };
+
+    encoder.on("exit", onExit);
+    decoder.on("exit", () => {
+      try { encoder.stdin.end(); } catch (e) {}
     });
+
+    decoder.stderr.on("data", (chunk) => console.error(chunk.toString()));
+    encoder.stderr.on("data", (chunk) => console.error(chunk.toString()));
   }
 
-  // Neue Methode zum Shuffle der gesamten Queue
+  setVolume(percent) {
+    const p = Number(percent) || 0;
+    const clamped = Math.max(0, Math.min(200, Math.round(p)));
+    const targetMultiplier = clamped / 100;
+    this.volumePercent = clamped;
+    this.broadcastVolumeUpdate();
+
+    // Smoothly interpolate currentVolumeMultiplier -> targetMultiplier over ~600ms
+    if (this._volumeSmoothInterval) {
+      clearInterval(this._volumeSmoothInterval);
+      this._volumeSmoothInterval = null;
+    }
+
+    if (!this.currentVolumeMultiplier) this.currentVolumeMultiplier = targetMultiplier;
+    const duration = 600;
+    const steps = 12;
+    const stepMs = Math.max(30, Math.floor(duration / steps));
+    const start = this.currentVolumeMultiplier;
+    const delta = (targetMultiplier - start) / steps;
+    let step = 0;
+    this._volumeSmoothInterval = setInterval(() => {
+      step++;
+      this.currentVolumeMultiplier = start + delta * step;
+      if (step >= steps) {
+        this.currentVolumeMultiplier = targetMultiplier;
+        clearInterval(this._volumeSmoothInterval);
+        this._volumeSmoothInterval = null;
+      }
+    }, stepMs);
+  }
+
+  broadcastVolumeUpdate() {
+    const payload = JSON.stringify({ type: "volumeChanged", volume: this.volumePercent });
+    for (const ws of this.wsClients) {
+      if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+    }
+  }
+
   shuffleQueue() {
     for (let i = this.queue.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -140,20 +226,21 @@ export class RadioEngine extends EventEmitter {
     this.clients.add(res);
     res.on("close", () => this.clients.delete(res));
 
-    if (!this.currentProcess && this.queue.length > 0) this.playNext();
+    if (!this.currentDecoder && !this.currentEncoder && this.queue.length > 0) this.playNext();
   }
 
   addWSClient(ws) {
     this.wsClients.add(ws);
     ws.on("close", () => this.wsClients.delete(ws));
 
-    if (!this.currentProcess && this.queue.length > 0) this.playNext();
+    if (!this.currentDecoder && !this.currentEncoder && this.queue.length > 0) this.playNext();
   }
 
   skip() {
-    if (this.currentProcess) {
+    if (this.currentDecoder || this.currentEncoder) {
       console.log("Skip requested");
-      this.currentProcess.kill("SIGKILL");
+      try { if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); } catch (e) {}
+      try { if (this.currentEncoder) this.currentEncoder.kill("SIGKILL"); } catch (e) {}
     }
   }
 
@@ -162,13 +249,12 @@ export class RadioEngine extends EventEmitter {
 
     console.log("Previous requested");
 
-    // Zielindex berechnen (eins zurück, mit Wrap zum letzten Element)
     const targetIndex = this.currentIndex > 0 ? this.currentIndex - 1 : Math.max(0, this.queue.length - 1);
 
-    if (this.currentProcess) {
-      // currentIndex so setzen, dass nach dem ++ im exit-Handler genau targetIndex gespielt wird
+    if (this.currentDecoder || this.currentEncoder) {
       this.currentIndex = targetIndex - 1;
-      this.currentProcess.kill("SIGKILL");
+      try { if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); } catch (e) {}
+      try { if (this.currentEncoder) this.currentEncoder.kill("SIGKILL"); } catch (e) {}
     } else {
       this.currentIndex = targetIndex;
       this.playNext();
@@ -206,11 +292,12 @@ export class RadioEngine extends EventEmitter {
       targetIndex = played.length; // Index des gewählten Songs in der neuen Queue
     }
 
-    if (this.currentProcess) {
+    if (this.currentDecoder || this.currentEncoder) {
       // currentIndex so setzen, dass nach dem automatischen ++ im exit-Handler
       // genau der gewünschte Track gespielt wird.
       this.currentIndex = targetIndex - 1;
-      this.currentProcess.kill("SIGKILL");
+      try { if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); } catch (e) {}
+      try { if (this.currentEncoder) this.currentEncoder.kill("SIGKILL"); } catch (e) {}
     } else {
       this.currentIndex = targetIndex;
       this.playNext();
@@ -229,7 +316,7 @@ export class RadioEngine extends EventEmitter {
       duration: song?.duration || 0,
       index: this.currentIndex,
       total: this.queue.length,
-      elapsed: this.currentProcess?.elapsedTime || 0
+      elapsed: this.currentProcessElapsedTime || 0
     };
   }
 

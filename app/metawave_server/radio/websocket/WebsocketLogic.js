@@ -22,6 +22,8 @@ export function setupWebSocket(server) {
 
       const queueState = radio.getQueueState();
       ws.send(JSON.stringify({ type: "queueUpdated", queue: queueState }));
+      // Send current volume as part of initial state
+      ws.send(JSON.stringify({ type: "volumeChanged", volume: radio.volumePercent }));
     } catch (err) {
       console.error("Failed to send initial WS state:", err);
     }

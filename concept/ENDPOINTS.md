@@ -17,6 +17,8 @@ Hier werden alle Endpunkte mit ihrem Zweck sowie allen möglichen `Headern`, `Pa
     - [GET `/stream/control/previous`](#get-streamcontrolprevious)
     - [GET `/stream/control/shuffle`](#get-streamcontrolshuffle)
     - [GET `/stream/control/jumpto/${index}`](#get-streamcontroljumptoindex)
+    - [GET `/stream/control/volume`](#get-streamcontrolvolume)
+    - [GET `/stream/control/sound/{percentage}`](#get-streamcontrolsoundpercentage)
   - [Notification Service](#notification-service)
     - [POST `/notification/signal/invite`](#post-notificationsignalinvite)
     - [POST `/notification/signal/leave`](#post-notificationsignalleave)
@@ -163,6 +165,32 @@ Mit diesem Endpunkt kann man in der Warteschlange zum gewünschten Lied springen
     "message": "Jumped to Song Index {index}",
 }
 ```
+
+### GET `/stream/control/volume`
+Dieser Endpunkt liefert die aktuell konfigurierte globale Lautstärke in Prozent (0-200) für alle Hörer.
+
+**Response**
+```json
+{
+    "status": 200,
+    "volume": 100
+}
+```
+
+### GET `/stream/control/sound/{percentage}`
+Setzt die globale Lautstärke für alle Hörer. Erwartet einen Path-Parameter `percentage` (ganzzahlig, 0-200).
+Bei Änderung interpoliert der Server die Lautstärke sanft (ca. 600ms), sodass die Wiedergabe nicht von vorn beginnt.
+
+**Response**
+```json
+{
+    "status": 200,
+    "volume": 80
+}
+```
+
+> [!INFO]
+> Die Lautstärkeänderung wird serverseitig auf PCM-Ebene angewendet und dann wieder zu MP3 enkodiert. Das ermöglicht ein glattes Fading, erhöht aber CPU-/I/O-Last auf dem Server.
 
 ## Notification Service
 

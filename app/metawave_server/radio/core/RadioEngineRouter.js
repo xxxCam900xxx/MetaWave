@@ -21,10 +21,22 @@ router.get("/", (req, res) => {
 router.get("/meta/currentsong", (req, res) => res.json({ status: 200, message: "Displaying the metadata for the currently playing song", metadata: radio.getMeta() }));
 router.get("/meta/queue", (req, res) => res.json({ status: 200, message: "Displaying the metadata for all songs in Queue", metadata: radio.getQueueState().queue }));
 
-// Control endpoints (support GET for client convenience)
+// Control Endpoints
 router.get("/control/skip", (req, res) => { radio.skip(); res.json({ status: 200, message: "Song has been skipped" }); });
 router.get("/control/previous", (req, res) => { radio.previous(); res.json({ status: 200, message: "Previous song will be played" }); });
 router.get("/control/shuffle", (req, res) => { radio.shuffleRemaining(); res.json({ status: 200, message: "Queue shuffled" }); });
 router.get("/control/jumpto/:index", (req, res) => { radio.jumpto(req.params.index); res.json({ status: 200, message: `Jumped to Song Index ${req.params.index}` }); });
+
+// Volume control endpoints
+router.get("/control/sound/:percentage", (req, res) => {
+  const pct = Number(req.params.percentage);
+  if (Number.isNaN(pct)) return res.status(400).json({ status: 400, message: "Invalid percentage" });
+  radio.setVolume(pct);
+  return res.json({ status: 200, message: `Volume set to ${radio.volumePercent}%`, volume: radio.volumePercent });
+});
+
+router.get("/control/volume", (req, res) => {
+  return res.json({ status: 200, volume: radio.volumePercent });
+});
 
 export default router;

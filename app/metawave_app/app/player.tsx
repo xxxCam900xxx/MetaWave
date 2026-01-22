@@ -52,6 +52,7 @@ export default function PlayerScreen() {
   const [loading, setLoading] = useState(true);
   const [playbackLoading, setPlaybackLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [volume, setVolume] = useState<number>(100);
   const [error, setError] = useState<string | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const tokenRef = useRef<string | null>(null);
@@ -77,9 +78,9 @@ export default function PlayerScreen() {
         await startStream();
         await fetchMetadata();
         await fetchQueue();
+        await loadVolume();
         setupWebSocket();
 
-        // Leichtes Polling nur für aktuelle Metadaten, damit elapsed/duration stabil sind
         metaIntervalRef.current = setInterval(fetchMetadata, 1000);
       } catch (err) {
         setError("Konnte Audio-Stream nicht starten.");
@@ -121,9 +122,11 @@ export default function PlayerScreen() {
             setMeta(data.meta as StreamMeta);
           }
           if (data?.type === "queueUpdated" && data.queue) {
-            // queueUpdated schickt getQueueState(), relevante Liste ist queue.queue
             const q = Array.isArray(data.queue?.queue) ? data.queue.queue : data.queue;
             setQueue(q as QueueItem[]);
+          }
+          if (data?.type === "volumeChanged" && typeof data.volume === "number") {
+            setVolume(Number(data.volume));
           }
         } catch {
           // Ignore malformed messages
@@ -139,6 +142,21 @@ export default function PlayerScreen() {
       };
     } catch {
       // Wenn WS gar nicht erreichbar ist, bleibt HTTP-Initialzustand erhalten
+    }
+  };
+
+  // load current volume from server
+  const loadVolume = async () => {
+    if (!tokenRef.current) return;
+    try {
+      const res = await fetch(`${API_BASE}/stream/control/volume`, {
+        headers: { Authorization: `Bearer ${tokenRef.current}` },
+      });
+      if (!res.ok) return;
+      const json = await res.json();
+      if (typeof json?.volume === "number") setVolume(json.volume);
+    } catch (e) {
+      // ignore
     }
   };
 
@@ -240,7 +258,6 @@ export default function PlayerScreen() {
     if (status.isPlaying) {
       await soundRef.current.pauseAsync();
     } else {
-      // Beim Play immer den Stream neu holen, um wirklich aktuell zu sein
       await startStream();
     }
   };
@@ -256,6 +273,19 @@ export default function PlayerScreen() {
       });
     } catch (err) {
       Alert.alert("Fehler", "Steuerbefehl konnte nicht gesendet werden.");
+    }
+  };
+
+  const changeVolume = async (delta: number) => {
+    if (!tokenRef.current) return;
+    const newV = Math.max(0, Math.min(200, Math.round((volume || 0) + delta)));
+    try {
+      await fetch(`${API_BASE}/stream/control/sound/${newV}`, {
+        headers: { Authorization: `Bearer ${tokenRef.current}` },
+      });
+      setVolume(newV);
+    } catch (err) {
+      Alert.alert("Fehler", "Lautstärke konnte nicht gesetzt werden.");
     }
   };
 
@@ -324,6 +354,9 @@ export default function PlayerScreen() {
               )}
             </View>
           </View>
+          <View style={{ alignItems: "center", marginTop: 8 }}>
+            <Text style={styles.queueText}>Lautstärke: {volume}%</Text>
+          </View>
         </View>
 
         {error && <Text style={styles.errorText}>{error}</Text>}
@@ -347,8 +380,16 @@ export default function PlayerScreen() {
         </View>
 
         <View style={styles.controlsRowSecondary}>
+          <TouchableOpacity style={styles.chip} onPress={() => changeVolume(-10)}>
+            <Text style={styles.chipText}>-10%</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.chip} onPress={() => callControl("/stream/control/shuffle")}>
             <Text style={styles.chipText}>Shuffle</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.chip} onPress={() => changeVolume(10)}>
+            <Text style={styles.chipText}>+10%</Text>
           </TouchableOpacity>
         </View>
 
