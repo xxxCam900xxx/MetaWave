@@ -2,6 +2,7 @@ version: "3.9"
 
 services:
   downloader:
+    container_name: downloader
     build:
       context: ../..
       dockerfile: docker/metawave_server/dockerfile.downloader
@@ -12,6 +13,7 @@ services:
     restart: "no"
 
   radio:
+    container_name: server
     build:
       context: ../..
       dockerfile: docker/metawave_server/dockerfile.radio

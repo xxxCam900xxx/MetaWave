@@ -1,7 +1,7 @@
 version: "3.9"
 services:
   app:
-    container_name: metawave
+    container_name: client
     build: 
       context: ../..
       dockerfile: docker/metawave_app/dockerfile.app
