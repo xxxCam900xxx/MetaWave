@@ -66,7 +66,7 @@ cat ~/.ssh/id_ed25519.pub
 ssh -T git@github.com
 
 # Repo per SSH klonen (Beispiel)
-git clone git@gitserver:<ORG>/<REPO>.git MetaWave
+git clone git@github.com:xxxCam900xxx/MetaWave.git MetaWave
 
 cd MetaWave/docker
 ```
