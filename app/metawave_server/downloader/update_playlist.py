@@ -124,8 +124,31 @@ def get_playlist_entries(playlist_url: str):
     return urls
 
 
+def get_downloaded_video_ids() -> set[str]:
+    """Liest alle bereits heruntergeladenen Video-IDs aus den vorhandenen .info.json Dateien."""
+
+    ids: set[str] = set()
+
+    for file in SONGS_DIR.glob("*.info.json"):
+        try:
+            with open(file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            vid = data.get("id")
+            if isinstance(vid, str):
+                ids.add(vid)
+        except Exception:
+            # Beschädigte/unerwartete Dateien ignorieren
+            continue
+
+    return ids
+
+
 def flatten_playlist_to_file(playlist_url: str, output_file: Path) -> int:
-    """Liest die komplette Playlist und schreibt alle Video-URLs in eine JSON-Datei."""
+    """Liest die komplette Playlist und schreibt nur noch nicht heruntergeladene Video-URLs in eine JSON-Datei.
+
+    Bereits vorhandene Downloads werden über vorhandene .info.json Dateien erkannt und gefiltert.
+    Es werden keinerlei Dateien gelöscht; ältere, nicht mehr in der Playlist vorhandene Songs bleiben im Volume.
+    """
 
     cmd = [
         sys.executable,
@@ -151,17 +174,35 @@ def flatten_playlist_to_file(playlist_url: str, output_file: Path) -> int:
         return 0
 
     entries = data.get("entries") or []
+
+    # Bereits heruntergeladene Video-IDs ermitteln
+    downloaded_ids = get_downloaded_video_ids()
+    if downloaded_ids:
+        print(f"[downloader] {len(downloaded_ids)} Videos bereits im songs-Volume vorhanden – werden beim Flatten übersprungen.")
+
     urls = []
+    skipped = 0
 
     for entry in entries:
         vid = entry.get("id")
-        if vid:
-            urls.append(f"https://www.youtube.com/watch?v={vid}")
+        if not vid:
+            continue
+
+        # Nur Videos berücksichtigen, die noch nicht heruntergeladen wurden
+        if vid in downloaded_ids:
+            skipped += 1
+            continue
+
+        urls.append(f"https://www.youtube.com/watch?v={vid}")
 
     try:
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(urls, f, indent=2)
-        print(f"[downloader] Playlist geflattet: {len(urls)} Einträge -> {output_file}")
+
+        print(
+            f"[downloader] Playlist geflattet: {len(entries)} Einträge gesamt, "
+            f"{skipped} bereits vorhanden, {len(urls)} neue Einträge -> {output_file}"
+        )
     except Exception as e:
         print(f"[downloader] Fehler beim Schreiben der Playlist-Datei: {e}")
         return 0
@@ -261,7 +302,24 @@ def download_in_batches(video_urls):
 
 
 def build_metadata():
-    metadata = []
+    """Erzeugt metadata.json.
+
+    Standardverhalten:
+    - Wenn PLAYLIST_URL gesetzt ist und die Playlist geladen werden kann,
+      wird die Metadata-Liste an der aktuellen Playlist ausgerichtet.
+      Es werden nur Videos berücksichtigt, deren IDs in der aktuellen
+      Playlist vorkommen und für die bereits eine .info.json existiert.
+
+    - Wenn die Playlist nicht geladen werden kann, werden alle vorhandenen
+      .info.json Dateien verwendet (Fallback, bisheriges Verhalten).
+
+    - Bereits vorhandene Dateien (MP3 / .info.json), deren IDs nicht mehr
+      in der Playlist sind, bleiben physisch erhalten, erscheinen aber
+      nicht mehr in der neuen metadata.json.
+    """
+
+    # Zuerst alle vorhandenen .info.json Dateien einlesen und nach Video-ID indexieren
+    info_by_id = {}
 
     for file in SONGS_DIR.glob("*.info.json"):
         try:
@@ -270,15 +328,52 @@ def build_metadata():
 
             mp3_file = file.with_suffix("").with_suffix(".mp3")
 
-            metadata.append({
+            vid = data.get("id")
+            if not isinstance(vid, str):
+                continue
+
+            info_by_id[vid] = {
                 "title": data.get("title"),
                 "author": data.get("uploader"),
                 "duration": data.get("duration"),
                 "cover": data.get("thumbnail"),
-                "filename": mp3_file.name
-            })
-        except:
+                "filename": mp3_file.name,
+            }
+        except Exception:
+            # Beschädigte/unerwartete Dateien überspringen
             continue
+
+    metadata = []
+    playlist_url = os.environ.get("PLAYLIST_URL")
+    used_playlist_filter = False
+
+    if playlist_url:
+        try:
+            print("[downloader] Lade aktuelle Playlist für Metadata-Filter...")
+            playlist_urls = get_playlist_entries(playlist_url)
+
+            # Video-IDs aus den Playlist-URLs extrahieren (Parameter v=...)
+            playlist_ids = []
+            for url in playlist_urls:
+                if "v=" in url:
+                    vid_part = url.split("v=")[-1]
+                    vid = vid_part.split("&")[0]
+                    if vid:
+                        playlist_ids.append(vid)
+
+            for vid in playlist_ids:
+                entry = info_by_id.get(vid)
+                if entry is not None:
+                    metadata.append(entry)
+
+            used_playlist_filter = True
+            print(f"[downloader] Metadata anhand aktueller Playlist gefiltert ({len(metadata)} Einträge mit vorhandenen Dateien).")
+        except Exception as e:
+            print(f"[downloader] Hinweis: Konnte Playlist für Metadata-Bau nicht laden ({e}). Verwende alle vorhandenen Dateien.")
+
+    if not used_playlist_filter:
+        # Fallback: alle vorhandenen Dateien verwenden (ungefiltert)
+        metadata = list(info_by_id.values())
 
     with open(METADATA_FILE, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
