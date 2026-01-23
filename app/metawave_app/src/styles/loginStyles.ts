@@ -3,13 +3,13 @@ import { StyleSheet } from "react-native";
 export const loginStyles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#050510",
+    backgroundColor: "#1d1d1d",
   },
   centered: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#050510",
+    backgroundColor: "#1d1d1d",
   },
   loadingText: {
     marginTop: 12,
@@ -28,14 +28,14 @@ export const loginStyles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 14,
-    color: "#b0b0c0",
+    color: "#dddddd",
     marginBottom: 32,
   },
   input: {
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#151523",
+    backgroundColor: "#282828",
     color: "#ffffff",
     marginBottom: 16,
   },
@@ -64,12 +64,12 @@ export const loginStyles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#151523",
+    backgroundColor: "#282828",
     borderWidth: 1,
-    borderColor: "#4fa3ff",
+    borderColor: "#888888",
   },
   helperButtonText: {
-    color: "#4fa3ff",
+    color: "#ffffff",
     fontSize: 12,
     fontWeight: "500",
   },

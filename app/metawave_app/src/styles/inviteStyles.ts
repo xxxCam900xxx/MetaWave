@@ -3,7 +3,7 @@ import { StyleSheet } from "react-native";
 export const inviteStyles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#050510",
+    backgroundColor: "#1d1d1d",
   },
   headerRow: {
     flexDirection: "row",
@@ -26,7 +26,7 @@ export const inviteStyles = StyleSheet.create({
     paddingTop: 32,
   },
   subtitle: {
-    color: "#b0b0c0",
+    color: "#dddddd",
     marginBottom: 24,
     fontSize: 14,
   },
@@ -34,7 +34,7 @@ export const inviteStyles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#151523",
+    backgroundColor: "#282828",
     color: "#ffffff",
     marginBottom: 24,
   },

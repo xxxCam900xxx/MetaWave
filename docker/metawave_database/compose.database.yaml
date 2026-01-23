@@ -5,4 +5,4 @@ services:
       context: ../..
       dockerfile: docker/metawave_database/dockerfile.database
     env_file:
-      - .env
+      - ../metawave_database/.env

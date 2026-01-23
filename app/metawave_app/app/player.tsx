@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Image, ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Alert, Dimensions, Image, Platform, ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { Audio, AVPlaybackStatus } from "expo-av";
-import { API_BASE } from "./config";
-import { playerStyles as styles } from "./styles/playerStyles";
+import { API_BASE } from "../src/config";
+import { playerStyles as styles } from "../src/styles/playerStyles";
 
 interface StreamMeta {
   filename?: string;
@@ -49,6 +49,7 @@ export default function PlayerScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const isDesktop = width >= 900;
+  const windowHeight = Dimensions.get("window").height;
   const [meta, setMeta] = useState<StreamMeta | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,6 +61,8 @@ export default function PlayerScreen() {
   const tokenRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const metaIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const queueScrollRef = useRef<any>(null);
+  const queueItemLayoutRef = useRef<Record<number, number>>({});
 
   useEffect(() => {
     const init = async () => {
@@ -146,6 +149,19 @@ export default function PlayerScreen() {
       // Wenn WS gar nicht erreichbar ist, bleibt HTTP-Initialzustand erhalten
     }
   };
+
+  useEffect(() => {
+    const scrollView = queueScrollRef.current;
+    if (!scrollView) return;
+
+    const activeItem = queue.find((item) => item.isPlaying);
+    if (!activeItem) return;
+
+    const y = queueItemLayoutRef.current[activeItem.index];
+    if (typeof y === "number" && typeof scrollView.scrollTo === "function") {
+      scrollView.scrollTo({ y: Math.max(y - 16, 0), animated: true });
+    }
+  }, [queue]);
 
   // load current volume from server
   const loadVolume = async () => {
@@ -402,38 +418,53 @@ export default function PlayerScreen() {
 
         <View style={[styles.queueContainer, isDesktop && styles.queueContainerDesktop]}>
           <Text style={styles.queueHeader}>Queue</Text>
-          <View style={styles.queueListContent}>
-            {queue.map((item) => {
-              const active = item.isPlaying;
-              const played = item.hasBeenPlayed && !active;
-              return (
-                <TouchableOpacity
-                  key={item.index}
-                  style={[styles.queueItem, played && styles.queueItemPlayed, active && styles.queueItemActive]}
-                  onPress={() => callControl(`/stream/control/jumpto/${item.index}`)}
-                  activeOpacity={0.7}
-                >
-                  {item.cover ? (
-                    <Image source={{ uri: item.cover }} style={styles.queueThumbnail} />
-                  ) : (
-                    <View style={[styles.queueThumbnail, styles.queueThumbnailPlaceholder]}>
-                      <Text style={styles.queueThumbnailText}>♪</Text>
-                    </View>
-                  )}
+          <ScrollView
+            ref={queueScrollRef}
+            style={styles.queueListContent}
+            contentContainerStyle={{ paddingBottom: 24 }}
+            showsVerticalScrollIndicator
+            {...(Platform.OS === "web" ? ({ className: "queue-scroll" } as any) : {})}
+          >
+            <View
+              style={{
+                maxHeight: isDesktop ? windowHeight * 0.7 : windowHeight * 0.4,
+              }}
+            >
+              {queue.map((item) => {
+                const active = item.isPlaying;
+                const played = item.hasBeenPlayed && !active;
+                return (
+                  <TouchableOpacity
+                    key={item.index}
+                    onLayout={(e) => {
+                      queueItemLayoutRef.current[item.index] = e.nativeEvent.layout.y;
+                    }}
+                    style={[styles.queueItem, played && styles.queueItemPlayed, active && styles.queueItemActive]}
+                    onPress={() => callControl(`/stream/control/jumpto/${item.index}`)}
+                    activeOpacity={0.7}
+                  >
+                    {item.cover ? (
+                      <Image source={{ uri: item.cover }} style={styles.queueThumbnail} />
+                    ) : (
+                      <View style={[styles.queueThumbnail, styles.queueThumbnailPlaceholder]}>
+                        <Text style={styles.queueThumbnailText}>♪</Text>
+                      </View>
+                    )}
 
-                  <View style={styles.queueTexts}>
-                    <Text style={[styles.queueTitle, active && styles.queueTitleActive]} numberOfLines={1}>
-                      {item.title || item.song}
-                    </Text>
-                    <Text style={styles.queueAuthor} numberOfLines={1}>
-                      {item.author || "Unbekannter Künstler"}
-                    </Text>
-                  </View>
-                  <Text style={styles.queueDuration}>{item.duration ? `${Math.round(item.duration / 60)} min` : ""}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+                    <View style={styles.queueTexts}>
+                      <Text style={[styles.queueTitle, active && styles.queueTitleActive]} numberOfLines={1}>
+                        {item.title || item.song}
+                      </Text>
+                      <Text style={styles.queueAuthor} numberOfLines={1}>
+                        {item.author || "Unbekannter Künstler"}
+                      </Text>
+                    </View>
+                    <Text style={styles.queueDuration}>{item.duration ? `${Math.round(item.duration / 60)} min` : ""}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
         </View>
       </ScrollView>
     </SafeAreaView>
