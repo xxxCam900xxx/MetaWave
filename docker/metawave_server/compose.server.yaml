@@ -22,11 +22,6 @@ services:
       - songs:/songs
     ports:
       - "8000:8000"
-    depends_on:
-      downloader:
-        condition: service_completed_successfully
-      signal-api:
-        condition: service_started
     restart: unless-stopped
 
 volumes:
