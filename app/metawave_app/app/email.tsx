@@ -2,8 +2,8 @@ import React, { useState } from "react";
 import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { API_BASE } from "./config";
-import { inviteStyles as styles } from "./styles/inviteStyles";
+import { API_BASE } from "../src/config";
+import { inviteStyles as styles } from "../src/styles/inviteStyles";
 
 export default function EmailInviteScreen() {
   const router = useRouter();

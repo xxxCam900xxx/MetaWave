@@ -3,13 +3,13 @@ import { StyleSheet } from "react-native";
 export const playerStyles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#050510",
+    backgroundColor: "#1d1d1d",
   },
   centered: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#050510",
+    backgroundColor: "#1d1d1d",
   },
   loadingText: {
     marginTop: 12,
@@ -57,12 +57,12 @@ export const playerStyles = StyleSheet.create({
     marginBottom: 24,
   },
   coverPlaceholder: {
-    backgroundColor: "#151523",
+    backgroundColor: "#282828",
     alignItems: "center",
     justifyContent: "center",
   },
   coverPlaceholderText: {
-    color: "#777799",
+    color: "#dddddd",
     fontSize: 22,
     fontWeight: "700",
   },
@@ -77,13 +77,13 @@ export const playerStyles = StyleSheet.create({
     textAlign: "center",
   },
   songAuthor: {
-    color: "#b0b0c0",
+    color: "#dddddd",
     fontSize: 14,
     marginTop: 4,
     textAlign: "center",
   },
   queueText: {
-    color: "#777799",
+    color: "#dddddd",
     marginTop: 4,
     fontSize: 12,
   },
@@ -95,7 +95,7 @@ export const playerStyles = StyleSheet.create({
     flexDirection: "row",
     height: 6,
     borderRadius: 999,
-    backgroundColor: "#202033",
+    backgroundColor: "#3a3a3a",
     overflow: "hidden",
   },
   progressBarFill: {
@@ -107,14 +107,14 @@ export const playerStyles = StyleSheet.create({
     marginTop: 8,
   },
   progressLabel: {
-    color: "#777799",
+    color: "#dddddd",
     fontSize: 12,
   },
   progressRightBlock: {
     alignItems: "flex-end",
   },
   progressEndLabel: {
-    color: "#55556b",
+    color: "#cccccc",
     fontSize: 11,
     marginTop: 2,
   },
@@ -146,7 +146,7 @@ export const playerStyles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#151523",
+    backgroundColor: "#282828",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -162,7 +162,7 @@ export const playerStyles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: "#151523",
+    backgroundColor: "#282828",
   },
   chipText: {
     color: "#ffffff",
@@ -186,7 +186,7 @@ export const playerStyles = StyleSheet.create({
     marginBottom: 8,
   },
   queueListContent: {
-    paddingBottom: 24,
+    flexGrow: 0,
   },
   queueItem: {
     flexDirection: "row",
@@ -195,7 +195,7 @@ export const playerStyles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 10,
-    backgroundColor: "#111120",
+    backgroundColor: "#282828",
     marginBottom: 6,
   },
   queueItemActive: {
@@ -209,14 +209,14 @@ export const playerStyles = StyleSheet.create({
     height: 42,
     borderRadius: 6,
     marginRight: 10,
-    backgroundColor: "#151523",
+    backgroundColor: "#282828",
   },
   queueThumbnailPlaceholder: {
     alignItems: "center",
     justifyContent: "center",
   },
   queueThumbnailText: {
-    color: "#777799",
+    color: "#ffffff",
     fontSize: 18,
     fontWeight: "600",
   },
@@ -233,12 +233,12 @@ export const playerStyles = StyleSheet.create({
     color: "#1db954",
   },
   queueAuthor: {
-    color: "#777799",
+    color: "#f0f0f0",
     fontSize: 12,
     marginTop: 2,
   },
   queueDuration: {
-    color: "#777799",
+    color: "#f0f0f0",
     fontSize: 12,
   },
 });
