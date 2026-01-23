@@ -7,9 +7,9 @@ SET
   time_zone = "+00:00";
 
 -- Create Database (if not exists)
-CREATE DATABASE IF NOT EXISTS metawave_db;
+CREATE DATABASE IF NOT EXISTS database_metawave;
 
-USE metawave_db;
+USE database_metawave;
 
 -- Create Tables (if not exists)
 CREATE TABLE IF NOT EXISTS signal_notificationgroup (

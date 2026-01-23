@@ -7,28 +7,17 @@ services:
     volumes:
       - songs:/songs
     env_file:
-      - .env
-    restart: "no"
-
-  signal-api:
-    image: bbernhard/signal-cli-rest-api:latest
-    container_name: signal-api
+      - ../metawave_server/.env
     environment:
-      - MODE=rest       
-      - PORT=8000       
-    ports:
-      - "5000:8000"     
-    volumes:
-      - signal-data:/home/.local/share/signal-cli
-    restart: unless-stopped
-
+      - PYTHONUNBUFFERED=1
+    restart: "no"
   radio:
     container_name: server
     build:
       context: ../..
       dockerfile: docker/metawave_server/dockerfile.radio
     env_file:
-      - .env
+      - ../metawave_server/.env
     volumes:
       - songs:/songs
     ports:

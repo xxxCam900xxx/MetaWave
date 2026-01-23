@@ -24,19 +24,27 @@ docker compose version
 > - Stellen Sie sicher, dass Docker ausgeführt wird, bevor Sie fortfahren.
 > - Für die Include-Funktion benötigen Sie Docker Compose v2.20+.
 
+Das Projekt verwendet `docker/compose.enviroment.yaml`, welches folgende Compose-Fragmente inkludiert:
+
+- `metawave_database/compose.database.yaml`
+- `metawave_server/compose.server.yaml`
+- `metawave_app/compose.app.yaml`
+- `signal_cli/compose.signal.yaml`
+
 ## Step 1 | Enviroment Files erstellen
 
 Erstellen Sie im Verzeichnis `/docker/metawave_app` eine `.env` Datei mit den folgenden Variablen:
 
 ```bash
 # Für die lokale Entwicklung können Sie localhost verwenden.
-API_DOMAIN_URL=<http://localhost:8000>
+API_DOMAIN_URL=http://localhost:8000
 ```
 
-Danach erstellen Sie im Verzeichnis `/docker/metawave_server` eine `.env` Datei mit den folgenden Variablen:
-```bash
-# Schauen Sie das die Playlist öffentlich zugänglich ist!
-PLAYLIST_URL=<https://example.org/?playlist=kjnqwdoiugfikpoashd>
+Danach erstellen Sie im Verzeichnis `/docker/metawave_server` eine `.env` Datei mit den folgenden Variablen (an Ihre Umgebung anpassen):
+
+```env
+# Schauen Sie, dass die Playlist öffentlich zugänglich ist!
+PLAYLIST_URL=https://www.youtube.com/playlist?list=PLYfrfvAfnsDmHAS1wU6v-NC5e5iFxmgmH
 
 # --- Required server env vars ---
 # API port (radio/auth service)
@@ -46,30 +54,38 @@ PORT=8000
 DB_HOST=database
 DB_PORT=3306
 DB_USER=metawave_user
-DB_PASS=metawave_db_pass
-DB_NAME=metawave_db
+DB_PASS=strongpassword
+DB_NAME=database_metawave
 
 # Auth secret for JWTs
 AUTH_SECRET=<random_secret>
-AUTH_TOKEN_EXPIRY=1800
+AUTH_TOKEN_EXPIRY=3600
 
 # --- Signal (notifications) configuration ---
-# Option A: use the internal signal-cli-rest-api container (recommended)
-# Set SIGNAL_REST_API_URL to the internal URL (we use http://signal-api:8000 in compose)
-SIGNAL_REST_API_URL=http://signal-api:8000
+# Interner Zugriff auf den signal-cli-rest-api Container
+SIGNAL_REST_URL=http://signal-api:8000
 
-# The phone number registered in signal-cli (must be registered/verified)
-# Example: +41798878717
-SIGNAL_FROM_NUMBER=+41798878717
-
-# Optional: if you install signal-cli inside the radio container instead
-# SIGNAL_CLI_CMD=/usr/bin/signal-cli
+# Die Nummer, die im signal-api Container registriert ist
+SIGNAL_NUMBER=+41XXXXXXXX
 
 # Standard notification text
 STANDARD_NOTIFICATION_MESSAGE=Neuer WaveToken wurde generiert. Verwende ihn zum Login.
 
+# --- Downloader configuration (optional fein-tuning) ---
+# Number of concurrent downloads per batch
+BATCH_SIZE=10
+# Seconds to wait between batches
+BATCH_DELAY_SECONDS=60
+# Seconds to wait between individual video downloads
+VIDEO_DELAY_SECONDS=5
+# Retry/backoff settings
+MAX_RETRIES=5
+INITIAL_DELAY_SECONDS=60
+# Optional: limit playlist items for testing, e.g. "1-10" or "1,3,5"
+#PLAYLIST_ITEMS=
+
 # --- E-Mail (notifications) configuration ---
-# SMTP settings (z.B. Hostpoint)
+# (Optional, wenn E-Mail-Benachrichtigungen verwendet werden)
 SMTP_HOST=mail.hostpoint.ch
 SMTP_PORT=587
 SMTP_SECURE=false
@@ -81,9 +97,15 @@ EMAIL_FROM="MetaWave <no-reply@deine-domain.tld>"
 
 # Optional: Betreffzeile für E-Mail-Notifications
 EMAIL_NOTIFICATION_SUBJECT=Dein neuer MetaWave WaveToken
+```
 
-# Playlist URL for the downloader service
-PLAYLIST_URL="https://www.youtube.com/playlist?list=PLYfrfvAfnsDnKbAvlaQzHTxwToq0m5jMj"
+Danach erstellen Sie im Verzeichnis `/docker/metawave_database` eine `.env` Datei. Diese muss zu den `DB_*`-Werten oben passen:
+
+```env
+MARIADB_ROOT_PASSWORD=supersecret
+MARIADB_DATABASE=database_metawave
+MARIADB_USER=metawave_user
+MARIADB_PASSWORD=strongpassword
 ```
 
 ## Step 2 | Docker Container starten
@@ -93,6 +115,8 @@ Verwenden Sie den folgenden Befehl im Verzeichnis `docker`:
 ```bash
 docker compose -f compose.enviroment.yaml up --build
 ```
+
+Damit werden Datenbank, Server, Downloader, Signal-API und Client gemäß der inkludierten Dateien gestartet.
 
 ---
 
@@ -111,23 +135,23 @@ docker compose -f .\compose.enviroment.yaml exec signal-api sh
 - Öffnen Sie https://signalcaptchas.org/registration/generate.html in Ihrem Browser und lösen Sie das Captcha.
 - Rechtsklicken Sie auf den Link "Open Signal" und kopieren Sie den Token-Wert (die URL enthält `token=...`).
 
-3) Registrieren Sie die Nummer im Container (ersetzen Sie die Nummer durch Ihre `SIGNAL_FROM_NUMBER`):
+3) Registrieren Sie die Nummer im Container (ersetzen Sie die Nummer durch Ihre `SIGNAL_NUMBER`):
 
 ```sh
-signal-cli -u +41798878717 register --captcha <TOKEN>
+signal-cli -u +41XXXXXXXX register --captcha <TOKEN>
 ```
 
 4) Verifizieren Sie mit dem per SMS/Anruf erhaltenen Code:
 
 ```sh
-signal-cli -u +41798878717 verify <CODE>
+signal-cli -u +41XXXXXXXX verify <CODE>
 ```
 
 5) (Optional) Gerät koppeln oder Testnachricht senden:
 
 ```sh
-signal-cli -u +41798878717 listDevices
-signal-cli -u +41798878717 send -g "<group-id>" "Test Nachricht"
+signal-cli -u +41XXXXXXXX listDevices
+signal-cli -u +41XXXXXXXX send -g "<group-id>" "Test Nachricht"
 ```
 
 Hinweise:
@@ -161,8 +185,8 @@ Direkter REST-API-Test (ersetzen Sie `group-id`/`number`):
 
 ```powershell
 curl -i -X POST http://localhost:5000/v1/send \
-  -H "Content-Type: application/json" \
-  -d '{"message":"Test Nachricht","number":"+41798878717","recipients":["group.<your-group-id>"]}'
+	-H "Content-Type: application/json" \
+	-d '{"message":"Test Nachricht","number":"+41XXXXXXXX","recipients":["group.<your-group-id>"]}'
 ```
 
 ## Step 3 | Start Coding!
