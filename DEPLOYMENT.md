@@ -284,7 +284,7 @@ Standard-Ports (auf der VM):
 - `8000` → API (Radio & Auth Service)
 - `5000` → Signal REST API
 
-### 6.1 Zugriff von außen (ohne Domain)
+### 6.1 Zugriff von aussen (ohne Domain)
 
 - Öffne in deinem Browser: `http://<VM_PUBLIC_IP>` → MetaWave WebApp
 - API-Endpoint-Test:
@@ -293,7 +293,7 @@ Standard-Ports (auf der VM):
 	curl http://<VM_PUBLIC_IP>:8000
 	```
 
-Stelle sicher, dass in deiner Cloud-Firewall / Security Group die Ports 80 und 8000 (und optional 5000) von außen erreichbar sind.
+Stelle sicher, dass in deiner Cloud-Firewall / Security Group die Ports 80 und 8000 (und optional 5000) von aussen erreichbar sind.
 
 ### 6.2 Zugriff mit Domain (optional)
 

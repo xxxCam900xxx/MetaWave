@@ -116,7 +116,82 @@ Verwenden Sie den folgenden Befehl im Verzeichnis `docker`:
 docker compose -f compose.enviroment.yaml up --build
 ```
 
-Damit werden Datenbank, Server, Downloader, Signal-API und Client gemäß der inkludierten Dateien gestartet.
+Damit werden Datenbank, Server, Downloader, Signal-API und Client gemäss der inkludierten Dateien gestartet.
+
+### Downloader in 300er-Chunks mit Orchestrator ausführen
+
+Wenn deine Playlist sehr gross ist, kannst du die Downloads mit einem Orchestrator-Skript auf mehrere Downloader-Container aufteilen. Jeder Container lädt z.B. 300 Videos (Chunk) herunter, schreibt die MP3s + `.info.json` ins gemeinsame Volume `songs`, und am Ende wird aus allen vorhandenen Dateien eine gemeinsame `metadata.json` erzeugt.
+
+**Wichtig:**
+
+- Alle Downloader-Container teilen sich das Volume `songs`, daher landen alle MP3s und `.info.json`-Dateien im selben Ordner.
+- Die Playlist wird einmalig geflattet und in `/songs/playlist_urls.json` gespeichert.
+- Pro Chunk wird automatisch ein Downloader-Container mit eigener Range gestartet (z.B. `downloader-chunk-1-300`).
+- Auch wenn einzelne Chunks fehlschlagen, wird am Ende eine `metadata.json` mit den bereits vorhandenen `.info.json`-Dateien erzeugt (Teilbestand).
+
+#### Orchestrator-Variante (empfohlen)
+
+1. Wechsle in das `docker` Verzeichnis:
+
+  ```powershell
+  cd .\docker\
+  ```
+
+2. Baue bei Bedarf das Downloader-Image neu (nach Änderungen an den Skripten):
+
+  ```powershell
+  docker compose -f .\compose.enviroment.yaml build downloader
+  ```
+
+3. Starte den Orchestrator (Standard: 300er Chunks, max. 3 parallele Downloader):
+
+  ```powershell
+  .\run_downloader_chunks.ps1
+  ```
+
+  Optional kannst du Chunk-Grösse und Parallelität anpassen:
+
+  ```powershell
+  .\run_downloader_chunks.ps1 -ChunkSize 200 -MaxParallel 3
+  ```
+
+  Der Ablauf ist:
+
+  - Ein Container ruft `flatten_playlist.py` auf und schreibt die komplette Playlist als URL-Liste nach `/songs/playlist_urls.json`.
+  - Die Playlist-Länge wird ermittelt (z.B. 871 Videos) und in Chunks der Grösse `ChunkSize` aufgeteilt.
+  - Bis zu `MaxParallel` Downloader-Container laufen gleichzeitig. Jeder Container ruft `download_chunk.py` mit einer eigenen Range (`CHUNK_START`/`CHUNK_END`) auf und schreibt die Dateien ins `songs`-Volume. Die Container erhalten sprechende Namen wie `downloader-chunk-1-300`.
+  - Wenn alle Chunk-Runs durch sind (auch wenn einige fehlschlagen), ruft der Orchestrator `build_metadata.py` auf und erzeugt eine `metadata.json` aus allen vorhandenen `.info.json` Dateien.
+
+#### Manuelle Variante (nur bei Bedarf)
+
+Alternativ kannst du weiterhin manuell mit `PLAYLIST_ITEMS` und den Flags von `update_playlist.py` arbeiten, z.B. um einzelne Bereiche gezielt neu zu laden.
+
+1. Wechsle in das `docker` Verzeichnis:
+
+  ```powershell
+  cd .\docker\
+  ```
+
+2. Starte für jeden Playlist-Bereich einen Downloader-Run und gib dabei den entsprechenden `PLAYLIST_ITEMS` Bereich und das Flag `--download-only` an. Beispiel für die ersten 900 Videos:
+
+  ```powershell
+  # Videos 1–300
+  docker compose -f .\compose.enviroment.yaml run --rm -e PLAYLIST_ITEMS="1-300" downloader python -u update_playlist.py --download-only
+
+  # Videos 301–600
+  docker compose -f .\compose.enviroment.yaml run --rm -e PLAYLIST_ITEMS="301-600" downloader python -u update_playlist.py --download-only
+
+  # Videos 601–900
+  docker compose -f .\compose.enviroment.yaml run --rm -e PLAYLIST_ITEMS="601-900" downloader python -u update_playlist.py --download-only
+  ```
+
+3. Wenn alle Downloader-Runs fertig sind, erzeugst du einmalig die kombinierte `metadata.json`:
+
+  ```powershell
+  docker compose -f .\compose.enviroment.yaml run --rm downloader python -u update_playlist.py --metadata-only
+  ```
+
+  Dieser Aufruf liest alle vorhandenen `*.info.json` Dateien im `songs`-Volume und schreibt eine gemeinsame `metadata.json` Datei.
 
 ---
 

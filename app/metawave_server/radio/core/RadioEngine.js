@@ -62,7 +62,7 @@ export class RadioEngine extends EventEmitter {
     if (!this.queue.length) return;
 
     if (this.currentIndex < 0 || this.currentIndex >= this.queue.length) {
-      console.warn("currentIndex außerhalb der Queue:", this.currentIndex);
+      console.warn("currentIndex ausserhalb der Queue:", this.currentIndex);
       return;
     }
 
