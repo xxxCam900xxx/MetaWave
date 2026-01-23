@@ -77,27 +77,27 @@ Passe `git@gitserver:<ORG>/<REPO>.git` an dein echtes Repository an. Alternativ 
 
 ## 3. Environment Files anlegen
 
-In jedem der drei Service-Verzeichnisse unter `docker/` müssen `.env`-Dateien vorhanden sein.
+In jedem der Service-Verzeichnisse unter `docker/` müssen `.env`-Dateien vorhanden sein.
 
 ### 3.1 App: docker/metawave_app/.env
 
 1. Wechsle ins Docker-Verzeichnis:
 
-  ```bash
-  cd ~/MetaWave/docker
-  ```
+	```bash
+	cd ~/MetaWave/docker
+	```
 
 2. Öffne die Datei mit nano (wird erstellt, falls sie nicht existiert):
 
-  ```bash
-  nano metawave_app/.env
-  ```
+	```bash
+	nano metawave_app/.env
+	```
 
 3. Kopiere folgenden Inhalt und füge ihn in nano ein:
 
-  ```env
-  API_DOMAIN_URL=http://<VM_PUBLIC_IP>:8000
-  ```
+	```env
+	API_DOMAIN_URL=http://<VM_PUBLIC_IP>:8000
+	```
 
 4. Speichern in nano: `Ctrl+O`, Enter, dann mit `Ctrl+X` beenden.
 
@@ -107,61 +107,68 @@ In jedem der drei Service-Verzeichnisse unter `docker/` müssen `.env`-Dateien v
 
 1. Datei mit nano öffnen:
 
-  ```bash
-  cd ~/MetaWave/docker
-  nano metawave_server/.env
-  ```
+	```bash
+	cd ~/MetaWave/docker
+	nano metawave_server/.env
+	```
 
 2. Diesen Inhalt einfügen (vor dem Speichern ggf. Werte anpassen):
 
-  ```env
-  # Playlist muss öffentlich zugänglich sein
-  PLAYLIST_URL=https://www.youtube.com/playlist?list=PLYfrfvAfnsDnKbAvlaQzHTxwToq0m5jMj
+	```env
+	# Playlist muss öffentlich zugänglich sein
+	PLAYLIST_URL=https://www.youtube.com/playlist?list=PLYfrfvAfnsDmHAS1wU6v-NC5e5iFxmgmH
 
-  # API-Port
-  PORT=8000
+	# API-Port
+	PORT=8000
 
-  # Datenbank-Verbindung (muss zu metawave_database/.env passen)
-  DB_HOST=database
-  DB_PORT=3306
-  DB_USER=metawave_user
-  DB_PASS=metawave_db_pass
-  DB_NAME=metawave_db
+	# Datenbank-Verbindung (muss zu metawave_database/.env passen)
+	DB_HOST=database
+	DB_PORT=3306
+	DB_USER=metawave_user
+	DB_PASS=strongpassword
+	DB_NAME=database_metawave
 
-  # Auth-Secret für JWTs (unbedingt zufällig wählen!)
-  AUTH_SECRET=<random_secret>
-  AUTH_TOKEN_EXPIRY=1800
+	# Auth-Secret für JWTs (unbedingt zufällig wählen!)
+	AUTH_SECRET=<random_secret>
+	AUTH_TOKEN_EXPIRY=3600
 
-  # Signal (Notifications)
-  SIGNAL_REST_API_URL=http://signal-api:8000
-  SIGNAL_FROM_NUMBER=+41798878717
+	# Signal (Notifications)
+	SIGNAL_REST_URL=http://signal-api:8000
+	SIGNAL_NUMBER=+41798878717
 
-  # Standard-Nachricht für neue WaveTokens
-  STANDARD_NOTIFICATION_MESSAGE=Neuer WaveToken wurde generiert. Verwende ihn zum Login.
-  ```
+	# Standard-Nachricht für neue WaveTokens
+	STANDARD_NOTIFICATION_MESSAGE=Neuer WaveToken wurde generiert. Verwende ihn zum Login.
+
+	# Downloader-Konfiguration (optional feintuning)
+	BATCH_SIZE=10
+	BATCH_DELAY_SECONDS=60
+	VIDEO_DELAY_SECONDS=5
+	MAX_RETRIES=5
+	INITIAL_DELAY_SECONDS=60
+	#PLAYLIST_ITEMS=1-10
+	```
 
 3. Speichern: `Ctrl+O`, Enter, dann `Ctrl+X`.
 
-Passe insbesondere `PLAYLIST_URL`, `AUTH_SECRET` und `SIGNAL_FROM_NUMBER` an deine Umgebung an.
+Passe insbesondere `PLAYLIST_URL`, `AUTH_SECRET` und `SIGNAL_NUMBER` an deine Umgebung an.
 
 ### 3.3 Datenbank: docker/metawave_database/.env
 
 1. Datei mit nano öffnen:
 
-  ```bash
-  cd ~/MetaWave/docker
-  nano metawave_database/.env
-  ```
+	```bash
+	cd ~/MetaWave/docker
+	nano metawave_database/.env
+	```
 
-2. Folgenden Inhalt einfügen:
+2. Folgenden Inhalt einfügen (entspricht der aktuellen Konfiguration):
 
-  ```env
-  # MySQL/MariaDB Konfiguration
-  MYSQL_ROOT_PASSWORD=metawave_root_pass
-  MYSQL_DATABASE=metawave_db
-  MYSQL_USER=metawave_user
-  MYSQL_PASSWORD=metawave_db_pass
-  ```
+	```env
+	MARIADB_ROOT_PASSWORD=supersecret
+	MARIADB_DATABASE=database_metawave
+	MARIADB_USER=metawave_user
+	MARIADB_PASSWORD=strongpassword
+	```
 
 3. Speichern: `Ctrl+O`, Enter, dann `Ctrl+X`.
 
@@ -191,14 +198,18 @@ docker compose -f compose.enviroment.yaml up downloader
 
 # 4) Radio / API
 docker compose -f compose.enviroment.yaml up -d radio
+
+# 5) WebApp
+docker compose -f compose.enviroment.yaml up -d app
 ```
 
 - `-d` startet die Container im Hintergrund (empfohlen für eine VM).
 - Beim **ersten Deployment** kannst du optional `--build` ergänzen (z. B. `up --build -d database`), damit die Images neu gebaut werden.
 - Die Compose-Datei inkludiert:
-  - [docker/metawave_database/compose.database.yaml](docker/metawave_database/compose.database.yaml)
-  - [docker/metawave_server/compose.server.yaml](docker/metawave_server/compose.server.yaml)
-  - [docker/metawave_app/compose.app.yaml](docker/metawave_app/compose.app.yaml)
+	- [docker/metawave_database/compose.database.yaml](docker/metawave_database/compose.database.yaml)
+	- [docker/metawave_server/compose.server.yaml](docker/metawave_server/compose.server.yaml)
+	- [docker/metawave_app/compose.app.yaml](docker/metawave_app/compose.app.yaml)
+	- [docker/signal_cli/compose.signal.yaml](docker/signal_cli/compose.signal.yaml)
 
 ### 4.1 Status prüfen
 
@@ -219,7 +230,7 @@ Relevante Container-Namen:
 
 ## 5. Signal (Notifications) auf der VM einrichten
 
-Damit Benachrichtigungen funktionieren, muss die Nummer in `SIGNAL_FROM_NUMBER` im `signal-api` Container registriert werden.
+Damit Benachrichtigungen funktionieren, muss die Nummer in `SIGNAL_NUMBER` im `signal-api` Container registriert werden.
 
 ### 5.1 Shell im signal-api Container öffnen
 
@@ -232,7 +243,7 @@ docker compose -f compose.enviroment.yaml exec signal-api sh
 ### 5.2 Captcha-Token erzeugen
 
 1. Öffne auf deinem lokalen Rechner im Browser:  
-   https://signalcaptchas.org/registration/generate.html
+	 https://signalcaptchas.org/registration/generate.html
 2. Löse das Captcha.
 3. Rechtsklick auf „Open Signal“ → Link-Adresse kopieren.
 4. Aus der URL den Wert hinter `token=` kopieren.
@@ -245,7 +256,7 @@ Im Container (Shell aus Schritt 5.1):
 signal-cli -u +<number> register --captcha <TOKEN>
 ```
 
-`+<number>` muss zu deiner `SIGNAL_FROM_NUMBER` passen.
+`+<number>` muss zu deiner `SIGNAL_NUMBER` passen.
 
 ### 5.4 Code verifizieren
 
@@ -273,16 +284,16 @@ Standard-Ports (auf der VM):
 - `8000` → API (Radio & Auth Service)
 - `5000` → Signal REST API
 
-### 6.1 Zugriff von außen (ohne Domain)
+### 6.1 Zugriff von aussen (ohne Domain)
 
 - Öffne in deinem Browser: `http://<VM_PUBLIC_IP>` → MetaWave WebApp
 - API-Endpoint-Test:
 
-  ```bash
-  curl http://<VM_PUBLIC_IP>:8000
-  ```
+	```bash
+	curl http://<VM_PUBLIC_IP>:8000
+	```
 
-Stelle sicher, dass in deiner Cloud-Firewall / Security Group die Ports 80 und 8000 (und optional 5000) von außen erreichbar sind.
+Stelle sicher, dass in deiner Cloud-Firewall / Security Group die Ports 80 und 8000 (und optional 5000) von aussen erreichbar sind.
 
 ### 6.2 Zugriff mit Domain (optional)
 
@@ -350,3 +361,7 @@ lynx http://localhost
 ```
 
 Wenn das alles funktioniert, solltest du von deinem Rechner aus über `http://<VM_PUBLIC_IP>` auf MetaWave zugreifen können.
+
+Hinweis zum Downloader
+- Der Downloader läuft im `downloader`-Service, schreibt unbuffered Logs und nutzt die ENV-Werte aus `metawave_server/.env` (Batch- und Retry-Settings).
+- Bei HTTP 429 (YouTube Rate-Limit) siehst du im Log Backoff-Meldungen. Nach den konfigurierten Versuchen werden problematische Videos übersprungen, der Rest der Playlist wird weiter verarbeitet.

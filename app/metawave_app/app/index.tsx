@@ -3,8 +3,8 @@ import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } fro
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import { API_BASE } from "./config";
-import { loginStyles as styles } from "./styles/loginStyles";
+import { API_BASE } from "../src/config";
+import { loginStyles as styles } from "../src/styles/loginStyles";
 
 export default function Index() {
   const router = useRouter();
