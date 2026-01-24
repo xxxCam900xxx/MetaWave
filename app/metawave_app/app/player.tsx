@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { Audio, AVPlaybackStatus } from "expo-av";
-import { API_BASE } from "../src/config";
+import { API_BASE, WS_BASE } from "../src/config";
 import { playerStyles as styles } from "../src/styles/playerStyles";
 
 interface StreamMeta {
@@ -116,7 +116,7 @@ export default function PlayerScreen() {
     if (!tokenRef.current) return;
 
     try {
-      const wsUrl = API_BASE.replace(/^http/, "ws") + `/?token=${encodeURIComponent(tokenRef.current)}`;
+      const wsUrl = WS_BASE + `/?token=${encodeURIComponent(tokenRef.current)}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 

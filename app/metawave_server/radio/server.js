@@ -18,7 +18,24 @@ import { runNotificationJob } from "./notification/NotificationJob.js";
 const app = express();
 const server = http.createServer(app);
 
-app.use(cors());
+import cors from "cors";
+
+const allowedOrigins = [
+   "https://metawave.timofej.ch",
+   "https://www.metawave.timofej.ch",
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error("Not allowed by CORS"));
+  },
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+}));
+
 app.use(express.json());
 
 // Root Routes
