@@ -290,6 +290,33 @@ export class RadioEngine extends EventEmitter {
 
       this.queue = [...played, target, ...leftovers];
       targetIndex = played.length; // Index des gewählten Songs in der neuen Queue
+    } else if (idx < this.currentIndex) {
+      const oldCurrent = this.currentIndex;
+
+      for (let i = 0; i < oldCurrent; i++) {
+        if (this.queue[i]) this.queue[i].hasBeenPlayed = true;
+      }
+
+      const target = this.queue[idx];
+      if (!target) return;
+
+      this.queue.splice(idx, 1);
+
+      const newCurrent = Math.max(0, oldCurrent - 1);
+      const insertPos = newCurrent + 1;
+      this.queue.splice(insertPos, 0, target);
+
+      if (this.currentDecoder || this.currentEncoder) {
+        this.currentIndex = newCurrent;
+        try { if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); } catch (e) {}
+        try { if (this.currentEncoder) this.currentEncoder.kill("SIGKILL"); } catch (e) {}
+      } else {
+        this.currentIndex = insertPos;
+        this.playNext();
+      }
+
+      this.broadcastQueueUpdate();
+      return;
     }
 
     if (this.currentDecoder || this.currentEncoder) {
@@ -332,7 +359,7 @@ export class RadioEngine extends EventEmitter {
         cover: song.cover,
         index,
         isPlaying: index === this.currentIndex,
-        hasBeenPlayed: index < this.currentIndex
+        hasBeenPlayed: (typeof song.hasBeenPlayed === "boolean") ? song.hasBeenPlayed : (index < this.currentIndex)
       }))
     };
   }
