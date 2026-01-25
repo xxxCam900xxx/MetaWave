@@ -61,6 +61,7 @@ export default function PlayerScreen() {
   const tokenRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const metaIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const authIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queueScrollRef = useRef<any>(null);
   const queueItemLayoutRef = useRef<Record<number, number>>({});
 
@@ -85,8 +86,10 @@ export default function PlayerScreen() {
         await fetchQueue();
         await loadVolume();
         setupWebSocket();
+        await validateToken();
 
         metaIntervalRef.current = setInterval(fetchMetadata, 1000);
+        authIntervalRef.current = setInterval(validateToken, 600000);
       } catch (err) {
         setError("Konnte Audio-Stream nicht starten.");
       } finally {
@@ -101,6 +104,11 @@ export default function PlayerScreen() {
         clearInterval(metaIntervalRef.current);
         metaIntervalRef.current = null;
       }
+
+        if (authIntervalRef.current) {
+          clearInterval(authIntervalRef.current);
+          authIntervalRef.current = null;
+        }
 
       if (wsRef.current) {
         wsRef.current.close();
@@ -175,6 +183,31 @@ export default function PlayerScreen() {
       if (typeof json?.volume === "number") setVolume(json.volume);
     } catch (e) {
       // ignore
+    }
+  };
+
+  const validateToken = async () => {
+    if (!tokenRef.current) return;
+    try {
+      const res = await fetch(`${API_BASE}/auth/validate`, {
+        headers: { Authorization: `Bearer ${tokenRef.current}` },
+      });
+
+      if (res.status === 401) {
+        await AsyncStorage.removeItem("authToken");
+        router.replace("/");
+        return;
+      }
+
+      if (!res.ok) return;
+
+      const json = await res.json();
+      if (json?.token && typeof json.token === "string") {
+        tokenRef.current = json.token;
+        await AsyncStorage.setItem("authToken", json.token);
+      }
+    } catch (e) {
+      // Ignore validation errors silently
     }
   };
 
