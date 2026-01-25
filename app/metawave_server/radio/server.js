@@ -18,23 +18,41 @@ import { runNotificationJob } from "./notification/NotificationJob.js";
 const app = express();
 const server = http.createServer(app);
 
-import cors from "cors";
+const allowedOrigins = new Set([
+    "https://metawave.timofej.ch",
+    "https://www.metawave.timofej.ch",
+]);
 
-const allowedOrigins = [
-   "https://metawave.timofej.ch",
-   "https://www.metawave.timofej.ch",
-];
+if (process.env.NODE_ENV !== "production") {
+   [
+      "http://localhost:3000",
+      "http://localhost:19006",
+      "http://localhost:19000",
+      "http://localhost:8081",
+      "http://127.0.0.1:3000",
+      "http://127.0.0.1:19006",
+      "http://host.docker.internal:3000",
+      "http://host.docker.internal:19006",
+   ].forEach((o) => allowedOrigins.add(o));
+}
 
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error("Not allowed by CORS"));
-  },
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
-}));
+console.log("CORS allowed origins:", Array.from(allowedOrigins));
+
+app.use(
+   cors({
+      origin: (origin, callback) => {
+         if (process.env.NODE_ENV !== "production") return callback(null, true);
+
+         if (!origin) return callback(null, true);
+         if (allowedOrigins.has(origin)) return callback(null, true);
+         console.warn("CORS rejected origin:", origin);
+         return callback(new Error("Not allowed by CORS"));
+      },
+      methods: ["GET", "POST", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization"],
+      credentials: true,
+   })
+);
 
 app.use(express.json());
 
