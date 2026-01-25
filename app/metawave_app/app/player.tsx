@@ -190,7 +190,8 @@ export default function PlayerScreen() {
     if (!tokenRef.current) return;
     try {
       const res = await fetch(`${API_BASE}/auth/validate`, {
-        headers: { Authorization: `Bearer ${tokenRef.current}` },
+        method: "POST",
+        headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "application/json" },
       });
 
       if (res.status === 401) {
