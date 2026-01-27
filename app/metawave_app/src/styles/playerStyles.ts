@@ -27,6 +27,10 @@ export const playerStyles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "600",
   },
+  settingsText: {
+    color: "#ffffff",
+    fontSize: 14,
+  },
   logoutText: {
     color: "#ff6b6b",
     fontSize: 14,

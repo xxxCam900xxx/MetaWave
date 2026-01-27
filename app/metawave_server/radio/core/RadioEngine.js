@@ -22,6 +22,9 @@ export class RadioEngine extends EventEmitter {
     this.currentProcessElapsedTime = 0;
     this.currentVolumeMultiplier = this.volumePercent / 100;
     this._volumeSmoothInterval = null;
+    this.monotoneEnabled = false;
+    this.monotoneReduceLoud = false;
+    this.monotoneTargetVolume = 100;
     this.loadQueue();
   }
 
@@ -114,9 +117,44 @@ export class RadioEngine extends EventEmitter {
 
     const processPCM = (buffer, multiplier) => {
       const out = Buffer.allocUnsafe(buffer.length);
+      
+      // Calculate RMS for normalization if monotone is enabled
+      let rms = 0;
+      if (this.monotoneEnabled) {
+        let sumSquares = 0;
+        for (let i = 0; i + 1 < buffer.length; i += 2) {
+          const sample = buffer.readInt16LE(i);
+          sumSquares += sample * sample;
+        }
+        rms = Math.sqrt(sumSquares / (buffer.length / 2));
+      }
+      
+      // Calculate normalization factor - ONLY boost quiet songs, don't reduce loud ones
+      const targetRMS = 10000; // Minimum RMS level - songs below this will be boosted
+      let normalizationMultiplier = 1.0;
+      
+      if (this.monotoneEnabled && rms > 0) {
+        if (rms < targetRMS) {
+          // Only amplify if song is too quiet (rms < targetRMS)
+          normalizationMultiplier = Math.min(2.5, targetRMS / rms) * (this.monotoneTargetVolume / 100);
+        } else if (this.monotoneReduceLoud) {
+          // Song is loud AND reduce loud is enabled -> soft reduction with compression curve
+          const rmsRatio = targetRMS / rms;
+          const reductionFactor = Math.pow(rmsRatio, 0.6); // Gentle compression curve
+          normalizationMultiplier = Math.max(0.4, reductionFactor) * (this.monotoneTargetVolume / 100);
+        } else {
+          // Song is already loud enough, just apply target volume
+          normalizationMultiplier = this.monotoneTargetVolume / 100;
+        }
+      }
+      
+      // Apply volume and normalization
+      const finalMultiplier = multiplier * normalizationMultiplier;
+      
       for (let i = 0; i + 1 < buffer.length; i += 2) {
         const sample = buffer.readInt16LE(i);
-        let v = Math.round(sample * multiplier);
+        let v = Math.round(sample * finalMultiplier);
+        // Soft clipping protection
         if (v > 32767) v = 32767;
         if (v < -32768) v = -32768;
         out.writeInt16LE(v, i);
@@ -386,6 +424,24 @@ export class RadioEngine extends EventEmitter {
     for (const ws of this.wsClients) {
       if (ws.readyState === WebSocket.OPEN) ws.send(payload);
     }
+  }
+
+  setMonotoneEnabled(enabled) {
+    this.monotoneEnabled = Boolean(enabled);
+    console.log(`Monotone equalizer ${this.monotoneEnabled ? 'enabled' : 'disabled'}`);
+  }
+
+  setMonotoneReduceLoud(enabled) {
+    this.monotoneReduceLoud = Boolean(enabled);
+    console.log(`Monotone reduce loud ${this.monotoneReduceLoud ? 'enabled' : 'disabled'}`);
+  }
+
+  getSettings() {
+    return {
+      monotoneEnabled: this.monotoneEnabled,
+      monotoneReduceLoud: this.monotoneReduceLoud,
+      monotoneTargetVolume: this.monotoneTargetVolume
+    };
   }
 }
 
