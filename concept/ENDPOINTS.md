@@ -19,6 +19,9 @@ Hier werden alle Endpunkte mit ihrem Zweck sowie allen möglichen `Headern`, `Pa
     - [GET `/stream/control/jumpto/${index}`](#get-streamcontroljumptoindex)
     - [GET `/stream/control/volume`](#get-streamcontrolvolume)
     - [GET `/stream/control/sound/{percentage}`](#get-streamcontrolsoundpercentage)
+    - [GET `/stream/settings`](#get-streamsettings)
+    - [POST `/stream/settings/monotone`](#post-streamsettingsmonotone)
+    - [POST `/stream/settings/monotone/reduce-loud`](#post-streamsettingsmonotonereduce-loud)
   - [Notification Service](#notification-service)
     - [POST `/notification/signal/invite`](#post-notificationsignalinvite)
     - [POST `/notification/signal/leave`](#post-notificationsignalleave)
@@ -193,6 +196,63 @@ Bei Änderung interpoliert der Server die Lautstärke sanft (ca. 600ms), sodass 
 
 > [!INFO]
 > Die Lautstärkeänderung wird serverseitig auf PCM-Ebene angewendet und dann wieder zu MP3 enkodiert. Das ermöglicht ein glattes Fading, erhöht aber CPU-/I/O-Last auf dem Server.
+
+### GET `/stream/settings`
+Gibt die aktuellen Server-Einstellungen für Audio-Verarbeitung zurück, insbesondere den Status des Monotone Equalizers.
+
+**Response**
+```json
+{
+    "status": 200,
+    "monotoneEnabled": false,
+    "monotoneReduceLoud": false,
+    "monotoneTargetVolume": 100
+}
+```
+
+### POST `/stream/settings/monotone`
+Aktiviert oder deaktiviert den Monotone Equalizer. Dieser hebt automatisch zu leise Songs an (RMS-basiert), ohne bereits laute Songs zu reduzieren.
+
+**Body**
+```json
+{
+    "enabled": true
+}
+```
+
+**Response**
+```json
+{
+    "status": 200,
+    "message": "Monotone equalizer enabled",
+    "monotoneEnabled": true
+}
+```
+
+> [!INFO]
+> Der Monotone Equalizer verwendet RMS-Analyse auf PCM-Ebene. Songs mit RMS < 10000 werden verstärkt (max. 2.5x), Songs mit RMS ≥ 10000 bleiben im Standard-Modus unverändert. Dies löst das Problem zu leiser Tracks, ohne gut gemasterte Songs zu komprimieren. Details siehe [MONOTONE_EQUALIZER.md](MONOTONE_EQUALIZER.md).
+
+### POST `/stream/settings/monotone/reduce-loud`
+Aktiviert oder deaktiviert die zusätzliche Reduktion lauter Songs. Benötigt einen aktiven Monotone Equalizer. Laute Songs (RMS > 10000) werden sanft reduziert mit einer Kompressionskurve die die musikalische Dynamik erhält.
+
+**Body**
+```json
+{
+    "enabled": true
+}
+```
+
+**Response**
+```json
+{
+    "status": 200,
+    "message": "Monotone reduce loud enabled",
+    "monotoneReduceLoud": true
+}
+```
+
+> [!INFO]
+> Der Reduce-Loud Modus nutzt eine sanfte Kompressionskurve (`Math.pow(ratio, 0.6)`) um laute Songs zu reduzieren ohne die Dynamik zu zerstören. Min. Reduktion: 0.4x (max. 60% leiser). Nur aktiv wenn Monotone Equalizer eingeschaltet ist.
 
 ## Notification Service
 

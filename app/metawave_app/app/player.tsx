@@ -367,6 +367,9 @@ export default function PlayerScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.headerRow}>
+        <TouchableOpacity onPress={() => router.push("/settings")}>
+          <Text style={styles.settingsText}>Settings</Text>
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>MetaWave</Text>
         <TouchableOpacity onPress={logout}>
           <Text style={styles.logoutText}>Logout</Text>

@@ -39,4 +39,27 @@ router.get("/control/volume", (req, res) => {
   return res.json({ status: 200, volume: radio.volumePercent });
 });
 
+// Settings endpoints
+router.get("/settings", (req, res) => {
+  return res.json({ status: 200, ...radio.getSettings() });
+});
+
+router.post("/settings/monotone", (req, res) => {
+  const { enabled } = req.body;
+  if (typeof enabled !== "boolean") {
+    return res.status(400).json({ status: 400, message: "Invalid enabled value" });
+  }
+  radio.setMonotoneEnabled(enabled);
+  return res.json({ status: 200, message: `Monotone equalizer ${enabled ? 'enabled' : 'disabled'}`, monotoneEnabled: radio.monotoneEnabled });
+});
+
+router.post("/settings/monotone/reduce-loud", (req, res) => {
+  const { enabled } = req.body;
+  if (typeof enabled !== "boolean") {
+    return res.status(400).json({ status: 400, message: "Invalid enabled value" });
+  }
+  radio.setMonotoneReduceLoud(enabled);
+  return res.json({ status: 200, message: `Monotone reduce loud ${enabled ? 'enabled' : 'disabled'}`, monotoneReduceLoud: radio.monotoneReduceLoud });
+});
+
 export default router;
