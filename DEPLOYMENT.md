@@ -146,6 +146,10 @@ In jedem der Service-Verzeichnisse unter `docker/` müssen `.env`-Dateien vorhan
 	MAX_RETRIES=5
 	INITIAL_DELAY_SECONDS=60
 	#PLAYLIST_ITEMS=1-10
+	
+	# YouTube Cookies (optional, für private/altersbeschränkte Videos)
+	# Siehe GET_YT_COOKIES.md für Setup-Anleitung
+	#YT_COOKIES=/cookies/www.youtube.com_cookies.txt
 	```
 
 3. Speichern: `Ctrl+O`, Enter, dann `Ctrl+X`.
@@ -190,16 +194,24 @@ Starte die Services nacheinander in folgender Reihenfolge:
 # 1) Datenbank
 docker compose -f compose.enviroment.yaml up -d database
 
+# Warte 10-15 Sekunden bis DB bereit ist
+sleep 15
+
 # 2) Signal REST API
 docker compose -f compose.enviroment.yaml up -d signal-api
 
-# 3) Downloader (läuft einmal durch und beendet sich danach)
+# 3) Downloader (lädt Playlist herunter und beendet sich)
+# Für große Playlists: Siehe Orchestrator-Anleitung unten
 docker compose -f compose.enviroment.yaml up downloader
 
-# 4) Radio / API
+# 4) LUFS-Analyse durchführen (EBU R128 Broadcasting-Standard)
+# Analysiert alle Songs und speichert Loudness-Werte in metadata.json
+docker compose -f compose.enviroment.yaml run --rm downloader python -u reanalyze_lufs.py
+
+# 5) Radio / API
 docker compose -f compose.enviroment.yaml up -d radio
 
-# 5) WebApp
+# 6) WebApp
 docker compose -f compose.enviroment.yaml up -d app
 ```
 
@@ -211,7 +223,51 @@ docker compose -f compose.enviroment.yaml up -d app
 	- [docker/metawave_app/compose.app.yaml](docker/metawave_app/compose.app.yaml)
 	- [docker/signal_cli/compose.signal.yaml](docker/signal_cli/compose.signal.yaml)
 
-### 4.1 Status prüfen
+### 4.1 Alternative: Orchestrator für große Playlists (empfohlen)
+
+Für Playlists mit >300 Videos empfiehlt sich der Orchestrator-Ansatz:
+
+**Auf Windows (PowerShell):**
+
+```bash
+cd ~/MetaWave/docker
+
+# Standard: 300er Chunks, max. 3 parallele Downloader
+./run_downloader_chunks.ps1 -ChunkSize 300 -MaxParallel 3
+
+# Nach Download: LUFS-Analyse
+docker compose -f compose.enviroment.yaml run --rm downloader python -u reanalyze_lufs.py
+```
+
+**Auf Linux (Bash):**
+
+```bash
+cd ~/MetaWave/docker
+
+# Standard: 300er Chunks, max. 3 parallele Downloader
+./run_downloader_chunks.sh 300 3
+
+# Nach Download: LUFS-Analyse
+docker compose -f compose.enviroment.yaml run --rm downloader python -u reanalyze_lufs.py
+```
+
+**Vorteile des Orchestrators:**
+- Teilt große Playlists in handliche Chunks auf
+- Mehrere parallele Downloads (schneller)
+- Robuster gegenüber Fehlern (einzelne Chunks können fehlschlagen)
+- Automatische Metadata-Erstellung am Ende
+
+**Nach dem Orchestrator-Run:**
+
+```bash
+# Starte Radio-Server um neue Songs zu laden
+docker compose -f compose.enviroment.yaml restart radio
+
+# Prüfe ob LUFS-Werte vorhanden sind
+docker compose -f compose.enviroment.yaml exec downloader sh -c "grep -c '\"lufs\"' /songs/metadata.json"
+```
+
+### 4.2 Status prüfen
 
 ```bash
 docker compose -f compose.enviroment.yaml ps
@@ -221,10 +277,91 @@ docker compose -f compose.enviroment.yaml logs -f
 
 Relevante Container-Namen:
 - `database` (MySQL/MariaDB)
-- `server` (Radio & Auth API)
+- `radio` (Radio & Auth API)
 - `downloader` (Playlist-Downloader, läuft i. d. R. einmal durch)
 - `signal-api` (Signal REST API)
-- `client` (WebApp)
+- `app` (WebApp)
+
+### 4.3 Troubleshooting Deployment
+
+**Problem: Database Container startet nicht**
+
+```bash
+# Logs prüfen
+docker compose -f compose.enviroment.yaml logs database
+
+# Häufigster Fehler: .env Datei fehlt
+ls -la metawave_database/.env
+
+# Volume prüfen
+docker volume inspect metawave_database-data
+
+# Notfalls Volume löschen (ACHTUNG: Löscht alle Daten!)
+docker compose -f compose.enviroment.yaml down
+docker volume rm metawave_database-data
+docker compose -f compose.enviroment.yaml up -d database
+```
+
+**Problem: Downloader schlägt fehl (YouTube 403/Sign in to confirm)**
+
+Lösung: YouTube Cookies erforderlich
+
+1. Siehe [GET_YT_COOKIES.md](docker/GET_YT_COOKIES.md) für Cookie-Extraktion
+2. Kopiere `www.youtube.com_cookies.txt` nach `docker/` Ordner
+3. Aktiviere in `metawave_server/.env`:
+   ```
+   YT_COOKIES=/cookies/www.youtube.com_cookies.txt
+   ```
+4. Starte Downloader neu:
+   ```bash
+   docker compose -f compose.enviroment.yaml up downloader
+   ```
+
+**Problem: LUFS-Analyse schlägt fehl**
+
+```bash
+# Prüfe ob FFmpeg vorhanden ist
+docker compose -f compose.enviroment.yaml run --rm downloader ffmpeg -version
+
+# Prüfe ob metadata.json existiert
+docker compose -f compose.enviroment.yaml exec downloader ls -lh /songs/metadata.json
+
+# Manuell einzelne Datei analysieren (zum Testen)
+docker compose -f compose.enviroment.yaml run --rm downloader python -u reanalyze_lufs.py --files "Song Name.mp3"
+
+# Force-Reanalyse aller Songs
+docker compose -f compose.enviroment.yaml run --rm downloader python -u reanalyze_lufs.py --force
+```
+
+**Problem: Radio-Server startet nicht / keine Songs**
+
+```bash
+# Logs prüfen
+docker compose -f compose.enviroment.yaml logs radio
+
+# Prüfe ob Songs vorhanden sind
+docker compose -f compose.enviroment.yaml exec radio ls -lh /songs/
+
+# Prüfe metadata.json
+docker compose -f compose.enviroment.yaml exec radio cat /songs/metadata.json | jq '.songs | length'
+
+# Starte Radio neu
+docker compose -f compose.enviroment.yaml restart radio
+```
+
+**Problem: App lädt nicht / 502 Bad Gateway**
+
+```bash
+# Prüfe ob Radio-Server läuft
+curl http://localhost:8000/api/stream/settings
+
+# Prüfe App-Container
+docker compose -f compose.enviroment.yaml logs app
+
+# Firewall-Regeln (falls auf VM)
+sudo ufw allow 8000/tcp
+sudo ufw allow 80/tcp
+```
 
 ---
 
@@ -232,7 +369,20 @@ Relevante Container-Namen:
 
 Damit Benachrichtigungen funktionieren, muss die Nummer in `SIGNAL_NUMBER` im `signal-api` Container registriert werden.
 
-### 5.1 Shell im signal-api Container öffnen
+### 5.1 Voraussetzungen prüfen
+
+```bash
+# Ist signal-api Container am laufen?
+docker compose -f compose.enviroment.yaml ps signal-api
+
+# Falls nicht, starten:
+docker compose -f compose.enviroment.yaml up -d signal-api
+
+# Logs prüfen
+docker compose -f compose.enviroment.yaml logs --tail 50 signal-api
+```
+
+### 5.2 Shell im signal-api Container öffnen
 
 ```bash
 cd ~/MetaWave/docker
@@ -240,38 +390,114 @@ cd ~/MetaWave/docker
 docker compose -f compose.enviroment.yaml exec signal-api sh
 ```
 
-### 5.2 Captcha-Token erzeugen
+Du solltest jetzt eine Shell im Container haben (`/home #`).
+
+### 5.3 Captcha-Token erzeugen
 
 1. Öffne auf deinem lokalen Rechner im Browser:  
 	 https://signalcaptchas.org/registration/generate.html
-2. Löse das Captcha.
-3. Rechtsklick auf „Open Signal“ → Link-Adresse kopieren.
-4. Aus der URL den Wert hinter `token=` kopieren.
+2. Löse das Captcha
+3. Rechtsklick auf „Open Signal“ → Link-Adresse kopieren
+4. Aus der URL den Wert hinter `token=` kopieren
 
-### 5.3 Nummer registrieren
-
-Im Container (Shell aus Schritt 5.1):
-
-```sh
-signal-cli -u +<number> register --captcha <TOKEN>
+**Beispiel-URL:**
+```
+signalcaptcha://signal-hcaptcha.5cc6d2e8-519a-4042-9e38-3522e26c85f1.registration
 ```
 
-`+<number>` muss zu deiner `SIGNAL_NUMBER` passen.
+**Token:** `signalcaptcha://signal-hcaptcha.5cc6d2e8-519a-4042-9e38-3522e26c85f1.registration`
 
-### 5.4 Code verifizieren
+### 5.4 Nummer registrieren
 
-Du erhältst per SMS/Anruf einen Code:
+Ersetze `+<number>` mit deiner `SIGNAL_NUMBER` aus `.env`:
 
 ```sh
-signal-cli -u +<number> verify <CODE>
+signal-cli -u +41798878717 register --captcha signalcaptcha://signal-hcaptcha.5cc6d2e8-519a-4042-9e38-3522e26c85f1.registration
 ```
 
-### 5.5 Prüfung & Test
+**Erwartete Ausgabe:**
+```
+Registration successful
+```
 
-Optional im Container:
+### 5.5 Code verifizieren
+
+Du erhältst per SMS oder Anruf einen 6-stelligen Code:
 
 ```sh
-signal-cli -u +<number> listDevices
+signal-cli -u +41798878717 verify 123456
+```
+
+**Erwartete Ausgabe:**
+```
+Verification successful
+```
+
+### 5.6 Prüfung & Test
+
+**Im Container:**
+
+```sh
+# Zeige registrierte Geräte
+signal-cli -u +41798878717 listDevices
+
+# Sollte dein Device auflisten
+```
+
+**Container verlassen:**
+
+```sh
+exit
+```
+
+**Test von außen (auf VM):**
+
+```bash
+# Signal API Health Check
+curl http://localhost:5000/v1/about
+
+# Manueller Notification-Test
+curl -X GET http://localhost:8000/api/notification/run-job
+```
+
+### 5.7 Troubleshooting Signal
+
+**Problem: "Invalid Captcha Token"**
+
+Lösung:
+- Token ist abgelaufen (max. 5 Minuten gültig)
+- Erzeuge neuen Token auf signalcaptchas.org
+- Kopiere komplette URL inklusive `signalcaptcha://`
+
+**Problem: "Number already registered"**
+
+Lösung:
+- Nummer ist bereits in einem anderen Signal-Client registriert
+- Nutze `--voice` Flag für Anruf statt SMS:
+  ```sh
+  signal-cli -u +41798878717 register --voice --captcha <TOKEN>
+  ```
+
+**Problem: "No verification code received"**
+
+Lösung:
+- Prüfe Nummernformat (mit Landesvorwahl, z.B. +41)
+- Versuche `--voice` für Anruf
+- Warte 2-3 Minuten, manchmal verzögert
+
+**Problem: Container startet nicht**
+
+```bash
+# Logs prüfen
+docker compose -f compose.enviroment.yaml logs signal-api
+
+# Volume prüfen (Permissions)
+docker volume inspect metawave_signal-data
+
+# Notfalls Volume neu erstellen
+docker compose -f compose.enviroment.yaml down
+docker volume rm metawave_signal-data
+docker compose -f compose.enviroment.yaml up -d signal-api
 ```
 
 ---
