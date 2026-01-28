@@ -198,20 +198,19 @@ Bei Änderung interpoliert der Server die Lautstärke sanft (ca. 600ms), sodass 
 > Die Lautstärkeänderung wird serverseitig auf PCM-Ebene angewendet und dann wieder zu MP3 enkodiert. Das ermöglicht ein glattes Fading, erhöht aber CPU-/I/O-Last auf dem Server.
 
 ### GET `/stream/settings`
-Gibt die aktuellen Server-Einstellungen für Audio-Verarbeitung zurück, insbesondere den Status des Monotone Equalizers.
+Gibt die aktuellen Server-Einstellungen für Audio-Verarbeitung zurück, insbesondere den Status des EBU R128 Loudness Normalizers.
 
 **Response**
 ```json
 {
     "status": 200,
     "monotoneEnabled": false,
-    "monotoneReduceLoud": false,
-    "monotoneTargetVolume": 100
+    "monotoneReduceLoud": false
 }
 ```
 
 ### POST `/stream/settings/monotone`
-Aktiviert oder deaktiviert den Monotone Equalizer. Dieser hebt automatisch zu leise Songs an (RMS-basiert), ohne bereits laute Songs zu reduzieren.
+Aktiviert oder deaktiviert die EBU R128 Loudness Normalisierung. Im Standard-Modus werden nur zu leise Songs auf Broadcast-Standard (-16 LUFS) angehoben.
 
 **Body**
 ```json
@@ -224,16 +223,16 @@ Aktiviert oder deaktiviert den Monotone Equalizer. Dieser hebt automatisch zu le
 ```json
 {
     "status": 200,
-    "message": "Monotone equalizer enabled",
+    "message": "EBU R128 Loudness Normalization enabled",
     "monotoneEnabled": true
 }
 ```
 
 > [!INFO]
-> Der Monotone Equalizer verwendet RMS-Analyse auf PCM-Ebene. Songs mit RMS < 10000 werden verstärkt (max. 2.5x), Songs mit RMS ≥ 10000 bleiben im Standard-Modus unverändert. Dies löst das Problem zu leiser Tracks, ohne gut gemasterte Songs zu komprimieren. Details siehe [MONOTONE_EQUALIZER.md](MONOTONE_EQUALIZER.md).
+> Der Monotone Equalizer verwendet **EBU R128 / LUFS** (Loudness Units relative to Full Scale), den europäischen Broadcasting-Standard. Songs werden auf **-16 LUFS** normalisiert (Spotify/YouTube Standard) mit **True Peak Limiting** bei -1.5 dB. LUFS-Werte werden einmalig beim Download analysiert und in metadata.json gespeichert. Details siehe [MONOTONE_EQUALIZER.md](MONOTONE_EQUALIZER.md).
 
 ### POST `/stream/settings/monotone/reduce-loud`
-Aktiviert oder deaktiviert die zusätzliche Reduktion lauter Songs. Benötigt einen aktiven Monotone Equalizer. Laute Songs (RMS > 10000) werden sanft reduziert mit einer Kompressionskurve die die musikalische Dynamik erhält.
+Aktiviert oder deaktiviert die zusätzliche Reduktion lauter Songs. Benötigt einen aktiven Monotone Equalizer. Laute Songs (> -16 LUFS) werden präzise auf -16 LUFS reduziert mit True Peak Limiting.
 
 **Body**
 ```json
@@ -246,13 +245,13 @@ Aktiviert oder deaktiviert die zusätzliche Reduktion lauter Songs. Benötigt ei
 ```json
 {
     "status": 200,
-    "message": "Monotone reduce loud enabled",
+    "message": "EBU R128 Reduce Loud Songs enabled",
     "monotoneReduceLoud": true
 }
 ```
 
 > [!INFO]
-> Der Reduce-Loud Modus nutzt eine sanfte Kompressionskurve (`Math.pow(ratio, 0.6)`) um laute Songs zu reduzieren ohne die Dynamik zu zerstören. Min. Reduktion: 0.4x (max. 60% leiser). Nur aktiv wenn Monotone Equalizer eingeschaltet ist.
+> Im erweiterten Modus werden alle Songs auf exakt -16 LUFS normalisiert. FFmpeg's loudnorm Filter verwendet die voranalysierten LUFS-Werte für präzise Second-Pass Normalisierung. **Standard-Modus** (reduce-loud=false): Nur leise Songs werden geboostet, laute bleiben original. **Erweiterter Modus** (reduce-loud=true): Vollständige Normalisierung mit True Peak Limiting.
 
 ## Notification Service
 
