@@ -1,7 +1,9 @@
 param(
     [int]$ChunkSize = 300,
     [int]$MaxParallel = 3,
-    [string]$CookiesFile = ""
+    [string]$CookiesFile = "",
+    [switch]$SkipLufs,
+    [switch]$ForceLufs
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,9 +18,8 @@ $cookieEnvArg = ""
 if ($CookiesFile -ne "") {
     try {
         $abs = (Resolve-Path $CookiesFile).Path
-        # WICHTIG: kompletter host:container:ro-Teil muss in einem Argument gequotet werden,
-        # damit Docker Compose den Pfad nicht in Service-Name und Rest zerschneidet.
-        $cookieMount = "$($abs):/cookies/www.youtube.com_cookies.txt:ro"
+        # RW-Mount, damit yt-dlp Cookies aktualisieren kann
+        $cookieMount = "$($abs):/cookies/www.youtube.com_cookies.txt"
         $cookieVolumeArg = "-v `"$cookieMount`""
         $cookieEnvArg = "-e YT_COOKIES=/cookies/www.youtube.com_cookies.txt"
         Write-Host "[orchestrator] Verwende Cookie-Datei: $abs" -ForegroundColor Cyan
@@ -34,25 +35,23 @@ if ($CookiesFile -ne "") {
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $scriptDir
 
-# 1) Playlist-Länge in einem Downloader-Container ermitteln
-Write-Host "[orchestrator] Flatten der Playlist via Container und Ermittlung der Länge..." -ForegroundColor Cyan
+# 1) Playlist synchronisieren: Diff zwischen lokal und remote berechnen
+Write-Host "[orchestrator] Synchronisiere Playlist (nur neue Videos werden geladen)..." -ForegroundColor Cyan
 
-# WICHTIG: Hier rufen wir python explizit auf, da ein zusätzliches Argument
-# sonst als eigenes Kommando interpretiert würde.
-# --flatten-playlist schreibt die komplette URL-Liste in /songs/playlist_urls.json
-# und gibt am Ende die reine Anzahl der Einträge aus.
-$flattenCmd = "docker compose -f .\compose.enviroment.yaml run --rm $cookieVolumeArg $cookieEnvArg downloader python -u flatten_playlist.py"
-Write-Host "[orchestrator] Befehl (flatten): $flattenCmd" -ForegroundColor DarkGray
-$dumpResult = Invoke-Expression $flattenCmd 2>&1
+# sync_playlist.py liest alte metadata.json, vergleicht mit YouTube-Playlist,
+# schreibt nur neue URLs in playlist_urls.json und gelöschte IDs in deleted_videos.json
+$syncCmd = "docker compose -f .\compose.enviroment.yaml run --rm $cookieVolumeArg $cookieEnvArg downloader python -u sync_playlist.py"
+Write-Host "[orchestrator] Befehl (sync): $syncCmd" -ForegroundColor DarkGray
+$syncResult = Invoke-Expression $syncCmd 2>&1
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "[orchestrator] Fehler beim Ermitteln der Playlist-Länge:" -ForegroundColor Red
-    Write-Host $dumpResult
+    Write-Host "[orchestrator] Fehler beim Synchronisieren der Playlist:" -ForegroundColor Red
+    Write-Host $syncResult
     exit 1
 }
 
-# Letzte Zeile suchen, die nur aus Ziffern besteht (Anzahl)
-$lines = $dumpResult -split "`n"
+# Letzte Zeile suchen, die nur aus Ziffern besteht (Anzahl NEUER Videos)
+$lines = $syncResult -split "`n"
 [int]$total = 0
 foreach ($line in $lines) {
     $trimmed = $line.Trim()
@@ -62,12 +61,23 @@ foreach ($line in $lines) {
 }
 
 if ($total -le 0) {
-    Write-Host "[orchestrator] Konnte keine gültige Playlist-Länge ausgeben. Ausgabe:" -ForegroundColor Red
-    Write-Host $dumpResult
-    exit 1
+    Write-Host "[orchestrator] Keine neuen Videos zum Download. Playlist ist synchron!" -ForegroundColor Green
+    
+    # Cleanup gelöschter Videos trotzdem durchführen
+    Write-Host "[orchestrator] Prüfe auf gelöschte Videos..." -ForegroundColor Cyan
+    $cleanupCmd = "docker compose -f .\compose.enviroment.yaml run --rm $cookieVolumeArg $cookieEnvArg downloader python -u cleanup_deleted.py"
+    Invoke-Expression $cleanupCmd
+    
+    # Metadata neu generieren (falls Cleanup etwas gelöscht hat)
+    Write-Host "[orchestrator] Aktualisiere metadata.json..." -ForegroundColor Cyan
+    $metadataCmd = "docker compose -f .\compose.enviroment.yaml run --rm $cookieVolumeArg $cookieEnvArg downloader python -u build_metadata.py"
+    Invoke-Expression $metadataCmd
+    
+    Write-Host "[orchestrator] Synchronisation abgeschlossen (keine Downloads nötig)." -ForegroundColor Green
+    exit 0
 }
 
-Write-Host "[orchestrator] Playlist-Länge: $total Videos" -ForegroundColor Green
+Write-Host "[orchestrator] Neue Videos: $total" -ForegroundColor Green
 
 # 2) 300er (oder konfigurierbare) Chunks berechnen
 $chunks = @()
@@ -178,3 +188,134 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "[orchestrator] Fertig: metadata.json aus allen aktuell vorhandenen Dateien erstellt." -ForegroundColor Green
+
+# 4.5) Cleanup gelöschter Videos
+Write-Host "[orchestrator] Lösche Videos die nicht mehr in der Playlist sind..." -ForegroundColor Cyan
+$cleanupCmd = "docker compose -f .\compose.enviroment.yaml run --rm $cookieVolumeArg $cookieEnvArg downloader python -u cleanup_deleted.py"
+Invoke-Expression $cleanupCmd
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[orchestrator] Warnung: Cleanup fehlgeschlagen, aber Downloads sind OK." -ForegroundColor Yellow
+}
+
+# Metadata nochmal neu generieren nach Cleanup
+Write-Host "[orchestrator] Aktualisiere metadata.json nach Cleanup..." -ForegroundColor Cyan
+$metadataCmd = "docker compose -f .\compose.enviroment.yaml run --rm $cookieVolumeArg $cookieEnvArg downloader python -u build_metadata.py"
+Invoke-Expression $metadataCmd
+
+# 5) Automatische LUFS-Analyse (falls nicht übersprungen) - PARALLELISIERT
+if (-not $SkipLufs) {
+    Write-Host "[orchestrator] Starte automatische LUFS-Analyse (parallelisiert)..." -ForegroundColor Cyan
+    
+    # 5a) Finde alle Songs die LUFS-Analyse brauchen
+    Write-Host "[orchestrator] Ermittle Songs für LUFS-Analyse..." -ForegroundColor Cyan
+    $forceFlag = if ($ForceLufs) { "-e FORCE_LUFS=1" } else { "" }
+    $countCmd = "docker compose -f .\compose.enviroment.yaml run --rm $cookieVolumeArg $cookieEnvArg $forceFlag downloader python -u -c `"from analyze_lufs_chunk import get_songs_to_analyze; songs = get_songs_to_analyze($($ForceLufs.ToString().ToLower())); print(len(songs))`""
+    $songCountRaw = Invoke-Expression $countCmd 2>&1 | Select-Object -Last 1
+    $songCount = 0
+    if ([int]::TryParse($songCountRaw, [ref]$songCount) -and $songCount -gt 0) {
+        Write-Host "[orchestrator] Gefunden: $songCount Songs für LUFS-Analyse" -ForegroundColor Yellow
+        
+        # 5b) Erstelle Chunks für LUFS-Analyse (1-basiert)
+        $lufsChunks = @()
+        for ($i = 1; $i -le $songCount; $i += $ChunkSize) {
+            $chunkEnd = [Math]::Min($i + $ChunkSize - 1, $songCount)
+            $lufsChunks += ,@($i, $chunkEnd)
+        }
+        
+        Write-Host "[orchestrator] LUFS-Chunks: $($lufsChunks.Count) (ChunkSize=$ChunkSize, MaxParallel=$MaxParallel)" -ForegroundColor Yellow
+        
+        # 5c) Parallel LUFS-Analyse
+        $lufsJobs = @()
+        $lufsChunkIndex = 0
+        foreach ($lufsChunk in $lufsChunks) {
+            $lufsChunkIndex++
+            $lufsStart = $lufsChunk[0]
+            $lufsEnd = $lufsChunk[1]
+            $lufsRange = "$lufsStart-$lufsEnd"
+            
+            # Throttling: nicht mehr als $MaxParallel Jobs gleichzeitig
+            while ((@($lufsJobs | Where-Object { $_.State -eq 'Running' })).Count -ge $MaxParallel) {
+                Start-Sleep -Seconds 5
+            }
+            
+            Write-Host "[orchestrator] Starte LUFS-Chunk $lufsChunkIndex/$($lufsChunks.Count): Range=$lufsRange" -ForegroundColor Yellow
+            
+            $lufsJob = Start-Job -Name "lufs_chunk_$lufsChunkIndex" -ScriptBlock {
+                param($startInner, $endInner, $rangeInner, $scriptDirInner, $pathInner, $forceFlagInner)
+                
+                Set-Location $scriptDirInner
+                $env:PATH = $pathInner
+                
+                Write-Host "[orchestrator][lufs] LUFS-Chunk $rangeInner gestartet" -ForegroundColor Yellow
+                
+                $containerName = "lufs-chunk-$rangeInner"
+                $cmd = "docker compose -f .\compose.enviroment.yaml run --rm --name $containerName $using:cookieVolumeArg $using:cookieEnvArg $forceFlagInner -e CHUNK_START=$startInner -e CHUNK_END=$endInner downloader python -u analyze_lufs_chunk.py"
+                Write-Host "[orchestrator][lufs] Befehl: $cmd" -ForegroundColor DarkGray
+                $output = Invoke-Expression $cmd 2>&1
+                $output | ForEach-Object { Write-Host "[orchestrator][lufs][$rangeInner] $_" }
+                $exitCode = $LASTEXITCODE
+                
+                if ($exitCode -ne 0) {
+                    Write-Host "[orchestrator][lufs] Fehler in LUFS-Chunk $rangeInner, ExitCode=$exitCode" -ForegroundColor Red
+                } else {
+                    Write-Host "[orchestrator][lufs] LUFS-Chunk $rangeInner erfolgreich" -ForegroundColor Green
+                }
+                
+                return $exitCode
+            } -ArgumentList $lufsStart, $lufsEnd, $lufsRange, $scriptDir, $pathForJobs, $forceFlag
+            
+            $lufsJobs += $lufsJob
+        }
+        
+        Write-Host "[orchestrator] Warte auf alle LUFS-Jobs..." -ForegroundColor Cyan
+        Wait-Job -Job $lufsJobs | Out-Null
+        
+        # 5d) Prüfe Ergebnisse
+        $lufsFailed = $false
+        foreach ($lufsJob in $lufsJobs) {
+            $result = Receive-Job $lufsJob -Keep -ErrorAction SilentlyContinue
+            $exitCode = 0
+            if ($result -is [int]) {
+                $exitCode = $result
+            } elseif ($result -is [object[]]) {
+                $ints = $result | Where-Object { $_ -is [int] }
+                if ($ints.Count -gt 0) { $exitCode = $ints[-1] }
+            }
+            
+            if ($exitCode -ne 0 -or $lufsJob.State -ne 'Completed') {
+                $lufsFailed = $true
+                Write-Host "[orchestrator] LUFS-Job '$($lufsJob.Name)' fehlgeschlagen (ExitCode=$exitCode, State=$($lufsJob.State))." -ForegroundColor Red
+            }
+        }
+        
+        # 5e) Merge LUFS-Ergebnisse
+        if (-not $lufsFailed) {
+            Write-Host "[orchestrator] Merge LUFS-Ergebnisse..." -ForegroundColor Cyan
+            $mergeCmd = "docker compose -f .\compose.enviroment.yaml run --rm $cookieVolumeArg $cookieEnvArg downloader python -u merge_lufs_results.py"
+            Invoke-Expression $mergeCmd
+            
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "[orchestrator] LUFS-Merge fehlgeschlagen." -ForegroundColor Red
+            } else {
+                Write-Host "[orchestrator] LUFS-Analyse erfolgreich abgeschlossen." -ForegroundColor Green
+                
+                # Radio-Neustart damit neue LUFS-Werte geladen werden
+                Write-Host "[orchestrator] Starte Radio neu damit neue LUFS-Werte geladen werden..." -ForegroundColor Cyan
+                docker compose -f ".\metawave_server\compose.server.yaml" restart radio
+                Write-Host "[orchestrator] Radio wurde neugestartet." -ForegroundColor Green
+            }
+        } else {
+            Write-Host "[orchestrator] LUFS-Analyse fehlgeschlagen (mindestens ein Chunk)." -ForegroundColor Yellow
+        }
+        
+    } elseif ($songCount -eq 0) {
+        Write-Host "[orchestrator] Keine Songs brauchen LUFS-Analyse." -ForegroundColor Green
+    } else {
+        Write-Host "[orchestrator] Fehler beim Ermitteln der Song-Anzahl für LUFS." -ForegroundColor Red
+    }
+} else {
+    Write-Host "[orchestrator] LUFS-Analyse übersprungen (-SkipLufs gesetzt). Starte manuell: .\run_lufs_analysis.ps1 -RestartRadio" -ForegroundColor Yellow
+}
+
+Write-Host "[orchestrator] Alle Schritte abgeschlossen." -ForegroundColor Green
