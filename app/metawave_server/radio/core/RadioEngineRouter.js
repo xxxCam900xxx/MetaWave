@@ -50,7 +50,11 @@ router.post("/settings/monotone", (req, res) => {
     return res.status(400).json({ status: 400, message: "Invalid enabled value" });
   }
   radio.setMonotoneEnabled(enabled);
-  return res.json({ status: 200, message: `Monotone equalizer ${enabled ? 'enabled' : 'disabled'}`, monotoneEnabled: radio.monotoneEnabled });
+  return res.json({ 
+    status: 200, 
+    message: `EBU R128 Loudness Normalization ${enabled ? 'enabled' : 'disabled'}`, 
+    monotoneEnabled: radio.monotoneEnabled 
+  });
 });
 
 router.post("/settings/monotone/reduce-loud", (req, res) => {
@@ -59,7 +63,11 @@ router.post("/settings/monotone/reduce-loud", (req, res) => {
     return res.status(400).json({ status: 400, message: "Invalid enabled value" });
   }
   radio.setMonotoneReduceLoud(enabled);
-  return res.json({ status: 200, message: `Monotone reduce loud ${enabled ? 'enabled' : 'disabled'}`, monotoneReduceLoud: radio.monotoneReduceLoud });
+  return res.json({ 
+    status: 200, 
+    message: `EBU R128 Reduce Loud Songs ${enabled ? 'enabled' : 'disabled'}`, 
+    monotoneReduceLoud: radio.monotoneReduceLoud 
+  });
 });
 
 export default router;
