@@ -18,13 +18,10 @@ export class RadioEngine extends EventEmitter {
     this.volumePercent = 100; // global volume in percent (100 = normal)
     this._restartSame = false; // internal flag to restart same track (used when applying volume)
     this.currentDecoder = null;
-    this.currentEncoder = null;
     this.currentProcessElapsedTime = 0;
     this.currentVolumeMultiplier = this.volumePercent / 100;
-    this._volumeSmoothInterval = null;
     this.monotoneEnabled = false;
-    this.monotoneReduceLoud = false;
-    this.monotoneTargetVolume = 100;
+    this.monotoneReduceLoud = false;  // Toggle: Auch laute Songs reduzieren?
     this.loadQueue();
   }
 
@@ -88,91 +85,80 @@ export class RadioEngine extends EventEmitter {
     const startTime = Date.now();
     this.emit("meta", this.getMeta());
 
-    // Decoder -> PCM -> process in JS -> Encoder -> MP3
-    const decoderArgs = [
+    // Single-Pass FFmpeg mit EBU R128 loudnorm Filter
+    // Verwende gespeicherte LUFS-Werte für precise normalization (Second Pass)
+    const ffmpegArgs = [
       "-re",
-      "-i", filePath,
-      "-f", "s16le",
-      "-ar", "44100",
-      "-ac", "2",
-      "pipe:1"
+      "-i", filePath
     ];
 
-    const encoderArgs = [
-      "-f", "s16le",
-      "-ar", "44100",
-      "-ac", "2",
-      "-i", "pipe:0",
+    // Audio Filter Chain aufbauen
+    let audioFilters = [];
+
+    // 1. EBU R128 Loudness Normalization (wenn LUFS-Daten vorhanden)
+    if (this.monotoneEnabled && song.lufs) {
+      const targetLUFS = -16.0;
+      const targetTP = -1.5;
+      const targetLRA = 11.0;
+      const currentLUFS = song.lufs.input_i;
+      
+      // Entscheide ob normalisiert werden soll:
+      // - Immer boosten wenn Song zu leise (< -16 LUFS)
+      // - Nur reduzieren wenn reduceLoud aktiviert UND Song zu laut (> -16 LUFS)
+      const shouldNormalize = currentLUFS < targetLUFS || this.monotoneReduceLoud;
+      
+      if (shouldNormalize) {
+        // Second Pass mit gemessenen Werten für precise normalization
+        const loudnormFilter = `loudnorm=I=${targetLUFS}:TP=${targetTP}:LRA=${targetLRA}:` +
+          `measured_I=${song.lufs.input_i}:` +
+          `measured_TP=${song.lufs.input_tp}:` +
+          `measured_LRA=${song.lufs.input_lra}:` +
+          `measured_thresh=${song.lufs.input_thresh}:` +
+          `offset=${song.lufs.target_offset}:` +
+          `linear=true:print_format=summary`;
+        
+        audioFilters.push(loudnormFilter);
+        
+        if (currentLUFS < targetLUFS) {
+          console.log(`[LUFS] ⬆️  Boost ${song.title}: ${currentLUFS.toFixed(1)} → ${targetLUFS} LUFS`);
+        } else {
+          console.log(`[LUFS] ⬇️  Reduce ${song.title}: ${currentLUFS.toFixed(1)} → ${targetLUFS} LUFS`);
+        }
+      } else {
+        console.log(`[LUFS] ➡️  Skip ${song.title}: ${currentLUFS.toFixed(1)} LUFS (bereits laut genug)`);
+      }
+    } else if (this.monotoneEnabled && !song.lufs) {
+      // Fallback: First Pass loudnorm (langsamer, aber funktioniert ohne gespeicherte Werte)
+      console.log(`[LUFS] Keine LUFS-Daten für ${song.title}, verwende First-Pass Normalisierung`);
+      audioFilters.push("loudnorm=I=-16:TP=-1.5:LRA=11:print_format=summary");
+    }
+
+    // 2. Volume Control (User-Lautstärke)
+    const volumeFilter = `volume=${(this.currentVolumeMultiplier ?? (this.volumePercent / 100)).toFixed(3)}`;
+    audioFilters.push(volumeFilter);
+
+    // Audio Filter Chain zu FFmpeg Args hinzufügen
+    if (audioFilters.length > 0) {
+      ffmpegArgs.push("-af", audioFilters.join(","));
+    }
+
+    // Output format
+    ffmpegArgs.push(
       "-f", "mp3",
       "-b:a", "128k",
       "pipe:1"
-    ];
+    );
 
-    const decoder = spawn("ffmpeg", decoderArgs, { stdio: ["ignore", "pipe", "pipe"] });
-    const encoder = spawn("ffmpeg", encoderArgs, { stdio: ["pipe", "pipe", "pipe"] });
-
-    this.currentDecoder = decoder;
-    this.currentEncoder = encoder;
+    const ffmpegProcess = spawn("ffmpeg", ffmpegArgs, { stdio: ["ignore", "pipe", "pipe"] });
+    
+    this.currentDecoder = ffmpegProcess;  // Für Skip/Previous Kompatibilität
+    this.currentEncoder = null;  // Nicht mehr benötigt (Single-Pass)
     this.currentProcessElapsedTime = 0;
 
-    const processPCM = (buffer, multiplier) => {
-      const out = Buffer.allocUnsafe(buffer.length);
-      
-      // Calculate RMS for normalization if monotone is enabled
-      let rms = 0;
-      if (this.monotoneEnabled) {
-        let sumSquares = 0;
-        for (let i = 0; i + 1 < buffer.length; i += 2) {
-          const sample = buffer.readInt16LE(i);
-          sumSquares += sample * sample;
-        }
-        rms = Math.sqrt(sumSquares / (buffer.length / 2));
-      }
-      
-      // Calculate normalization factor - ONLY boost quiet songs, don't reduce loud ones
-      const targetRMS = 10000; // Minimum RMS level - songs below this will be boosted
-      let normalizationMultiplier = 1.0;
-      
-      if (this.monotoneEnabled && rms > 0) {
-        if (rms < targetRMS) {
-          // Only amplify if song is too quiet (rms < targetRMS)
-          normalizationMultiplier = Math.min(2.5, targetRMS / rms) * (this.monotoneTargetVolume / 100);
-        } else if (this.monotoneReduceLoud) {
-          // Song is loud AND reduce loud is enabled -> soft reduction with compression curve
-          const rmsRatio = targetRMS / rms;
-          const reductionFactor = Math.pow(rmsRatio, 0.6); // Gentle compression curve
-          normalizationMultiplier = Math.max(0.4, reductionFactor) * (this.monotoneTargetVolume / 100);
-        } else {
-          // Song is already loud enough, just apply target volume
-          normalizationMultiplier = this.monotoneTargetVolume / 100;
-        }
-      }
-      
-      // Apply volume and normalization
-      const finalMultiplier = multiplier * normalizationMultiplier;
-      
-      for (let i = 0; i + 1 < buffer.length; i += 2) {
-        const sample = buffer.readInt16LE(i);
-        let v = Math.round(sample * finalMultiplier);
-        // Soft clipping protection
-        if (v > 32767) v = 32767;
-        if (v < -32768) v = -32768;
-        out.writeInt16LE(v, i);
-      }
-      return out;
-    };
-
-    decoder.stdout.on("data", (chunk) => {
-      try {
-        const processed = processPCM(chunk, (this.currentVolumeMultiplier ?? (this.volumePercent / 100)));
-        encoder.stdin.write(processed);
-      } catch (e) {
-        // ignore
-      }
+    // MP3 Stream direkt zu Clients streamen
+    ffmpegProcess.stdout.on("data", (mp3chunk) => {
       this.currentProcessElapsedTime = Math.floor((Date.now() - startTime) / 1000);
-    });
-
-    encoder.stdout.on("data", (mp3chunk) => {
+      
       for (const res of this.clients) try { res.write(mp3chunk); } catch (e) {}
       for (const ws of this.wsClients) {
         if (ws.readyState === WebSocket.OPEN) try { ws.send(mp3chunk); } catch (e) {}
@@ -205,44 +191,32 @@ export class RadioEngine extends EventEmitter {
       this.playNext();
     };
 
-    encoder.on("exit", onExit);
-    decoder.on("exit", () => {
-      try { encoder.stdin.end(); } catch (e) {}
+    ffmpegProcess.on("exit", onExit);
+    ffmpegProcess.stderr.on("data", (chunk) => {
+      // FFmpeg gibt loudnorm Stats in stderr aus - nur bei Fehlern loggen
+      const msg = chunk.toString();
+      if (msg.includes("error") || msg.includes("Error")) {
+        console.error("[FFmpeg Error]", msg);
+      }
     });
-
-    decoder.stderr.on("data", (chunk) => console.error(chunk.toString()));
-    encoder.stderr.on("data", (chunk) => console.error(chunk.toString()));
   }
 
   setVolume(percent) {
     const p = Number(percent) || 0;
     const clamped = Math.max(0, Math.min(200, Math.round(p)));
-    const targetMultiplier = clamped / 100;
     this.volumePercent = clamped;
+    this.currentVolumeMultiplier = clamped / 100;
     this.broadcastVolumeUpdate();
 
-    // Smoothly interpolate currentVolumeMultiplier -> targetMultiplier over ~600ms
-    if (this._volumeSmoothInterval) {
-      clearInterval(this._volumeSmoothInterval);
-      this._volumeSmoothInterval = null;
+    // Bei laufendem Track: Neustart mit neuer Lautstärke
+    // (FFmpeg kann Volume nicht live ändern bei unserem Setup)
+    if (this.currentDecoder) {
+      console.log(`[Volume] Setze Lautstärke auf ${clamped}%, starte Track neu...`);
+      this._restartSame = true;
+      try { 
+        if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); 
+      } catch (e) {}
     }
-
-    if (!this.currentVolumeMultiplier) this.currentVolumeMultiplier = targetMultiplier;
-    const duration = 600;
-    const steps = 12;
-    const stepMs = Math.max(30, Math.floor(duration / steps));
-    const start = this.currentVolumeMultiplier;
-    const delta = (targetMultiplier - start) / steps;
-    let step = 0;
-    this._volumeSmoothInterval = setInterval(() => {
-      step++;
-      this.currentVolumeMultiplier = start + delta * step;
-      if (step >= steps) {
-        this.currentVolumeMultiplier = targetMultiplier;
-        clearInterval(this._volumeSmoothInterval);
-        this._volumeSmoothInterval = null;
-      }
-    }, stepMs);
   }
 
   broadcastVolumeUpdate() {
@@ -264,21 +238,20 @@ export class RadioEngine extends EventEmitter {
     this.clients.add(res);
     res.on("close", () => this.clients.delete(res));
 
-    if (!this.currentDecoder && !this.currentEncoder && this.queue.length > 0) this.playNext();
+    if (!this.currentDecoder && this.queue.length > 0) this.playNext();
   }
 
   addWSClient(ws) {
     this.wsClients.add(ws);
     ws.on("close", () => this.wsClients.delete(ws));
 
-    if (!this.currentDecoder && !this.currentEncoder && this.queue.length > 0) this.playNext();
+    if (!this.currentDecoder && this.queue.length > 0) this.playNext();
   }
 
   skip() {
-    if (this.currentDecoder || this.currentEncoder) {
+    if (this.currentDecoder) {
       console.log("Skip requested");
       try { if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); } catch (e) {}
-      try { if (this.currentEncoder) this.currentEncoder.kill("SIGKILL"); } catch (e) {}
     }
   }
 
@@ -289,10 +262,9 @@ export class RadioEngine extends EventEmitter {
 
     const targetIndex = this.currentIndex > 0 ? this.currentIndex - 1 : Math.max(0, this.queue.length - 1);
 
-    if (this.currentDecoder || this.currentEncoder) {
+    if (this.currentDecoder) {
       this.currentIndex = targetIndex - 1;
       try { if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); } catch (e) {}
-      try { if (this.currentEncoder) this.currentEncoder.kill("SIGKILL"); } catch (e) {}
     } else {
       this.currentIndex = targetIndex;
       this.playNext();
@@ -344,10 +316,9 @@ export class RadioEngine extends EventEmitter {
       const insertPos = newCurrent + 1;
       this.queue.splice(insertPos, 0, target);
 
-      if (this.currentDecoder || this.currentEncoder) {
+      if (this.currentDecoder) {
         this.currentIndex = newCurrent;
         try { if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); } catch (e) {}
-        try { if (this.currentEncoder) this.currentEncoder.kill("SIGKILL"); } catch (e) {}
       } else {
         this.currentIndex = insertPos;
         this.playNext();
@@ -357,12 +328,11 @@ export class RadioEngine extends EventEmitter {
       return;
     }
 
-    if (this.currentDecoder || this.currentEncoder) {
+    if (this.currentDecoder) {
       // currentIndex so setzen, dass nach dem automatischen ++ im exit-Handler
       // genau der gewünschte Track gespielt wird.
       this.currentIndex = targetIndex - 1;
       try { if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); } catch (e) {}
-      try { if (this.currentEncoder) this.currentEncoder.kill("SIGKILL"); } catch (e) {}
     } else {
       this.currentIndex = targetIndex;
       this.playNext();
@@ -428,19 +398,36 @@ export class RadioEngine extends EventEmitter {
 
   setMonotoneEnabled(enabled) {
     this.monotoneEnabled = Boolean(enabled);
-    console.log(`Monotone equalizer ${this.monotoneEnabled ? 'enabled' : 'disabled'}`);
+    console.log(`EBU R128 Loudness Normalization ${this.monotoneEnabled ? 'enabled' : 'disabled'}`);
+    
+    // Bei laufendem Track: Neustart mit neuer Einstellung
+    if (this.currentDecoder) {
+      console.log(`[Monotone] Wende EBU R128 an, starte Track neu...`);
+      this._restartSame = true;
+      try { 
+        if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); 
+      } catch (e) {}
+    }
   }
 
   setMonotoneReduceLoud(enabled) {
     this.monotoneReduceLoud = Boolean(enabled);
-    console.log(`Monotone reduce loud ${this.monotoneReduceLoud ? 'enabled' : 'disabled'}`);
+    console.log(`EBU R128 Reduce Loud Songs ${this.monotoneReduceLoud ? 'enabled' : 'disabled'}`);
+    
+    // Bei laufendem Track: Neustart mit neuer Einstellung
+    if (this.currentDecoder && this.monotoneEnabled) {
+      console.log(`[Monotone] Toggle Reduce Loud, starte Track neu...`);
+      this._restartSame = true;
+      try { 
+        if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); 
+      } catch (e) {}
+    }
   }
 
   getSettings() {
     return {
       monotoneEnabled: this.monotoneEnabled,
-      monotoneReduceLoud: this.monotoneReduceLoud,
-      monotoneTargetVolume: this.monotoneTargetVolume
+      monotoneReduceLoud: this.monotoneReduceLoud
     };
   }
 }

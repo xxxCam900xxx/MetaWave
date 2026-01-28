@@ -3,6 +3,7 @@ import subprocess
 import sys
 import json
 import time
+import re
 from pathlib import Path
 
 PLAYLIST_URL = os.environ.get("PLAYLIST_URL", "")
@@ -215,17 +216,97 @@ def download_in_batches(video_urls):
     print(f"[downloader] Fertig. {downloaded}/{total} Videos verarbeitet.")
 
 
+def analyze_lufs(mp3_path: Path):
+    """Analysiert eine MP3-Datei mit FFmpeg loudnorm Filter (EBU R128).
+    
+    Returns dict mit LUFS-Werten oder None bei Fehler.
+    """
+    if not mp3_path.exists():
+        return None
+    
+    # FFmpeg loudnorm first pass: Analysiert die Datei und gibt JSON-Stats zurück
+    cmd = [
+        "ffmpeg",
+        "-i", str(mp3_path),
+        "-af", "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json",
+        "-f", "null",
+        "-"
+    ]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        print(f"[LUFS] Timeout bei Analyse von {mp3_path.name}")
+        return None
+    except Exception as e:
+        print(f"[LUFS] Fehler bei Analyse von {mp3_path.name}: {e}")
+        return None
+    
+    # FFmpeg gibt loudnorm JSON im stderr aus
+    stderr = result.stderr or ""
+    
+    # Finde JSON-Block im stderr (beginnt mit '{' und endet mit '}')
+    json_match = re.search(r'\{[^{}]*"input_i"[^{}]*\}', stderr, re.DOTALL)
+    if not json_match:
+        print(f"[LUFS] Kein LUFS-JSON gefunden für {mp3_path.name}")
+        return None
+    
+    try:
+        lufs_data = json.loads(json_match.group(0))
+        
+        # Extrahiere relevante Werte für Second Pass
+        return {
+            "input_i": float(lufs_data.get("input_i", "-23.0")),
+            "input_tp": float(lufs_data.get("input_tp", "-1.5")),
+            "input_lra": float(lufs_data.get("input_lra", "11.0")),
+            "input_thresh": float(lufs_data.get("input_thresh", "-33.0")),
+            "target_offset": float(lufs_data.get("target_offset", "0.0"))
+        }
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        print(f"[LUFS] JSON-Parse-Fehler für {mp3_path.name}: {e}")
+        return None
+
+
 def build_metadata():
     """Scant alle .info.json-Dateien und schreibt metadata.json.
 
     Wenn möglich, wird die aktuelle Playlist-Reihenfolge verwendet.
+    LUFS-Daten werden aus bestehender metadata.json übernommen (falls vorhanden).
+    Neue LUFS-Analysen werden separat parallelisiert durchgeführt.
     """
     from collections import OrderedDict
+
+    # Lade bestehende metadata.json um LUFS-Daten zu übernehmen
+    existing_lufs = {}
+    if METADATA_FILE.exists():
+        try:
+            with METADATA_FILE.open("r", encoding="utf-8") as f:
+                old_metadata = json.load(f)
+                # Unterstütze beide Formate: {"songs": [...]} und direkt [...]
+                songs_list = old_metadata.get('songs', []) if isinstance(old_metadata, dict) else old_metadata
+                
+                if isinstance(songs_list, list):
+                    for song in songs_list:
+                        if isinstance(song, dict):
+                            vid = song.get('id')
+                            lufs = song.get('lufs')
+                            if vid and lufs:
+                                existing_lufs[vid] = lufs
+                    print(f"[build_metadata] {len(existing_lufs)} LUFS-Daten aus bestehender metadata.json geladen")
+        except Exception as e:
+            print(f"[build_metadata] Hinweis: Konnte bestehende LUFS-Daten nicht laden ({e})")
 
     info_by_id = {}
 
     songs_path = SONGS_DIR
-    for file in songs_path.glob("*.info.json"):
+    
+    # Sammle alle .info.json Dateien
+    info_files = list(songs_path.glob("*.info.json"))
+    total_files = len(info_files)
+    
+    print(f"[build_metadata] Verarbeite {total_files} .info.json Dateien...")
+    
+    for file in info_files:
         try:
             with file.open("r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -236,13 +317,18 @@ def build_metadata():
         vid = data.get("id")
         if not isinstance(vid, str):
             continue
+        
+        # LUFS-Daten aus bestehender metadata.json übernehmen (falls vorhanden)
+        lufs_data = existing_lufs.get(vid)
 
         info_by_id[vid] = {
+            "id": vid,
             "title": data.get("title"),
             "author": data.get("uploader"),
             "duration": data.get("duration"),
             "cover": data.get("thumbnail"),
             "filename": mp3_file.name,
+            "lufs": lufs_data,
         }
 
     metadata = []
