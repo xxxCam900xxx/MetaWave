@@ -149,9 +149,9 @@ export default function SettingsScreen() {
           
           <View style={styles.settingRow}>
             <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Monotone Equalizer</Text>
+              <Text style={styles.settingLabel}>EBU R128 Normalisierung</Text>
               <Text style={styles.settingDescription}>
-                Normalisiert die Lautstärke: Hebt leise Songs an und reduziert laute Songs sanft
+                Hebt leise Songs auf Broadcast-Standard an (-16 LUFS)
               </Text>
             </View>
             <Switch
@@ -168,7 +168,7 @@ export default function SettingsScreen() {
             <View style={styles.settingInfo}>
               <Text style={styles.settingLabel}>Laute Songs reduzieren</Text>
               <Text style={styles.settingDescription}>
-                Reduziert zusätzlich sehr laute Songs sanft (benötigt Monotone Equalizer)
+                Reduziert auch laute Songs auf -16 LUFS (benötigt EBU R128)
               </Text>
             </View>
             <Switch
@@ -183,11 +183,13 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.infoBox}>
-          <Text style={styles.infoTitle}>ℹ️ Über Monotone Equalizer</Text>
+          <Text style={styles.infoTitle}>ℹ️ Über EBU R128 Normalisierung</Text>
           <Text style={styles.infoText}>
-            Diese Funktion analysiert die Lautstärke jedes Songs in Echtzeit. Zu leise Tracks werden automatisch verstärkt (bis zu 2,5x).{"\n\n"}
-            Mit "Laute Songs reduzieren" werden zusätzlich sehr laute Songs sanft reduziert. Die Kompressionskurve schützt dabei die musikalische Dynamik.{"\n\n"}
-            Ergebnis: Ein konsistentes Hörerlebnis ohne ständiges Nachregeln der Lautstärke.
+            Diese Funktion nutzt den professionellen Broadcasting-Standard EBU R128 (LUFS - Loudness Units relative to Full Scale).{"\n\n"}
+            Songs werden auf -16 LUFS normalisiert, wie bei Spotify, YouTube und echten Radio-Services. LUFS berücksichtigt die menschliche Hörwahrnehmung und misst perzeptuelle Lautstärke.{"\n\n"}
+            <Text style={{ fontWeight: 'bold' }}>Standard-Modus:</Text> Nur leise Songs werden lauter.{"\n"}
+            <Text style={{ fontWeight: 'bold' }}>Erweiterter Modus:</Text> Alle Songs auf gleiche Lautstärke.{"\n\n"}
+            Ergebnis: Professionelle Broadcast-Qualität mit True Peak Limiting (kein Clipping).
           </Text>
         </View>
       </ScrollView>
