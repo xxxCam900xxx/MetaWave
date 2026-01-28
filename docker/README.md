@@ -4,8 +4,21 @@
   - [Step 0 | Docker installieren](#step-0--docker-installieren)
   - [Step 1 | Enviroment Files erstellen](#step-1--enviroment-files-erstellen)
   - [Step 2 | Docker Container starten](#step-2--docker-container-starten)
+    - [Downloader in 300er-Chunks mit Orchestrator ausführen](#downloader-in-300er-chunks-mit-orchestrator-ausführen)
+      - [Orchestrator-Variante (empfohlen)](#orchestrator-variante-empfohlen)
+      - [Manuelle Variante (nur bei Bedarf)](#manuelle-variante-nur-bei-bedarf)
+    - [LUFS-Analyse für bereits heruntergeladene Songs](#lufs-analyse-für-bereits-heruntergeladene-songs)
+      - [Helper-Skripte (für manuelle Analyse)](#helper-skripte-für-manuelle-analyse)
+      - [Manuelle Docker-Befehle](#manuelle-docker-befehle)
   - [Zusatz: signal-cli konfigurieren (signal-cli-rest-api)](#zusatz-signal-cli-konfigurieren-signal-cli-rest-api)
+    - [Schritt-für-Schritt Anleitung](#schritt-für-schritt-anleitung)
   - [Schnelltests](#schnelltests)
+    - [Signal-API Status prüfen:](#signal-api-status-prüfen)
+    - [Radio-API testen:](#radio-api-testen)
+    - [Notification Job manuell auslösen:](#notification-job-manuell-auslösen)
+    - [Signal Testnachricht senden:](#signal-testnachricht-senden)
+    - [Metadata \& LUFS-Daten prüfen:](#metadata--lufs-daten-prüfen)
+    - [Container-Logs ansehen:](#container-logs-ansehen)
   - [Step 3 | Start Coding!](#step-3--start-coding)
 
 ---
@@ -84,6 +97,11 @@ INITIAL_DELAY_SECONDS=60
 # Optional: limit playlist items for testing, e.g. "1-10" or "1,3,5"
 #PLAYLIST_ITEMS=
 
+# --- YouTube Cookies (optional, für private/altersbeschränkte Videos) ---
+# Pfad zur YouTube Cookies-Datei im Container
+# Wenn gesetzt, wird yt-dlp authentifiziert (siehe GET_YT_COOKIES.md)
+#YT_COOKIES=/cookies/www.youtube.com_cookies.txt
+
 # --- E-Mail (notifications) configuration ---
 # (Optional, wenn E-Mail-Benachrichtigungen verwendet werden)
 SMTP_HOST=mail.hostpoint.ch
@@ -149,18 +167,52 @@ Wenn deine Playlist sehr gross ist, kannst du die Downloads mit einem Orchestrat
   .\run_downloader_chunks.ps1
   ```
 
-  Optional kannst du Chunk-Grösse und Parallelität anpassen:
+  **Der Orchestrator ist intelligent:**
+  - **Synchronisation**: Lädt nur neue Videos herunter (vergleicht mit bestehender metadata.json)
+  - **Cleanup**: Löscht Videos die nicht mehr in der Playlist sind
+  - **LUFS-Analyse**: Führt automatisch EBU R128 Analyse am Ende aus
+  - **Radio-Restart**: Startet Radio-Server mit aktuellen Songs neu
+
+  **Erste Ausführung**: Lädt alle Videos herunter  
+  **Weitere Ausführungen**: Nur neue Videos + Cleanup gelöschter
+
+  **LUFS überspringen:**
 
   ```powershell
-  .\run_downloader_chunks.ps1 -ChunkSize 200 -MaxParallel 3
+  .\run_downloader_chunks.ps1 -SkipLufs
   ```
 
-  Der Ablauf ist:
+  Optional kannst du Chunk-Größe, Parallelität und LUFS-Modus anpassen:
 
-  - Ein Container ruft `flatten_playlist.py` auf und schreibt die komplette Playlist als URL-Liste nach `/songs/playlist_urls.json`.
-  - Die Playlist-Länge wird ermittelt (z.B. 871 Videos) und in Chunks der Grösse `ChunkSize` aufgeteilt.
-  - Bis zu `MaxParallel` Downloader-Container laufen gleichzeitig. Jeder Container ruft `download_chunk.py` mit einer eigenen Range (`CHUNK_START`/`CHUNK_END`) auf und schreibt die Dateien ins `songs`-Volume. Die Container erhalten sprechende Namen wie `downloader-chunk-1-300`.
-  - Wenn alle Chunk-Runs durch sind (auch wenn einige fehlschlagen), ruft der Orchestrator `build_metadata.py` auf und erzeugt eine `metadata.json` aus allen vorhandenen `.info.json` Dateien.
+  ```powershell
+  # Custom Chunks + Force LUFS Re-Analyse
+  .\run_downloader_chunks.ps1 -ChunkSize 200 -MaxParallel 3 -ForceLufs
+
+  # Mit YouTube Cookies (für private/altersbeschränkte Videos)
+  .\run_downloader_chunks.ps1 -CookiesFile ".\www.youtube.com_cookies.txt"
+  ```
+
+  **Ablauf:**
+
+  1. **Sync**: `sync_playlist.py` vergleicht lokale metadata.json mit YouTube-Playlist
+     - Ermittelt neue Videos (noch nicht heruntergeladen)
+     - Ermittelt gelöschte Videos (nicht mehr in Playlist)
+     - Schreibt nur neue URLs in `playlist_urls.json`
+  
+  2. **Download**: Nur neue Videos werden in Chunks parallel heruntergeladen
+     - Bis zu `MaxParallel` Downloader-Container gleichzeitig
+     - Container-Namen: `downloader-chunk-1-300`, etc.
+     - Bei 0 neuen Videos: Überspringt Downloads komplett
+  
+  3. **Cleanup**: `cleanup_deleted.py` löscht MP3/Info-Dateien für Videos die nicht mehr in der Playlist sind
+  
+  4. **Metadata**: `build_metadata.py` erstellt aktuelle `metadata.json` aus allen vorhandenen Dateien
+  
+  5. **LUFS**: Analysiert neue Songs mit EBU R128 (parallelisiert in Chunks, außer mit `-SkipLufs`)
+  
+  6. **Radio-Restart**: Startet Radio-Server neu um Änderungen zu laden
+
+  **Performance**: Bei wiederholten Runs werden nur Delta-Änderungen verarbeitet (schnell!)
 
 #### Manuelle Variante (nur bei Bedarf)
 
@@ -193,40 +245,145 @@ Alternativ kannst du weiterhin manuell mit `PLAYLIST_ITEMS` und den Flags von `u
 
   Dieser Aufruf liest alle vorhandenen `*.info.json` Dateien im `songs`-Volume und schreibt eine gemeinsame `metadata.json` Datei.
 
+### LUFS-Analyse für bereits heruntergeladene Songs
+
+Nach dem Download (egal ob mit Orchestrator oder manuell) solltest du die **EBU R128 / LUFS Analyse** durchführen, damit der Monotone Equalizer optimal funktioniert.
+
+> **💡 Hinweis:** Der Orchestrator (`run_downloader_chunks.ps1` / `.sh`) führt die LUFS-Analyse **automatisch parallelisiert** am Ende aus. Die LUFS-Analyse wird auf mehrere Container aufgeteilt (gleicher `ChunkSize` und `MaxParallel` Parameter wie Downloads), um die Verarbeitung zu beschleunigen.
+
+> **⚡ Performance:** Bei 900 Songs mit 6 parallelen Containern dauert die LUFS-Analyse nur noch ~5-12 Minuten statt 30-75 Minuten sequenziell!
+
+#### Helper-Skripte (für manuelle Analyse)
+
+**Windows (PowerShell):**
+
+```powershell
+# Standard: Nur Songs ohne LUFS analysieren + Radio neu starten
+.\run_lufs_analysis.ps1 -RestartRadio
+
+# Force: ALLE Songs re-analysieren
+.\run_lufs_analysis.ps1 -Force -RestartRadio
+
+# Nur spezifische Dateien
+.\run_lufs_analysis.ps1 -Files "song1.mp3","song2.mp3"
+```
+
+**Linux/macOS (Bash):**
+
+```bash
+# Standard: Nur Songs ohne LUFS analysieren + Radio neu starten
+./run_lufs_analysis.sh --restart
+
+# Force: ALLE Songs re-analysieren
+./run_lufs_analysis.sh --force --restart
+
+# Nur spezifische Dateien
+./run_lufs_analysis.sh --files "song1.mp3" "song2.mp3" --restart
+```
+
+#### Manuelle Docker-Befehle
+
+Alternativ kannst du auch direkt mit Docker arbeiten:
+
+**1) Standard: Analysiere nur Songs ohne LUFS-Daten**
+
+```powershell
+docker compose -f .\compose.enviroment.yaml run --rm downloader python -u reanalyze_lufs.py
+```
+
+Dies analysiert alle Songs in `/songs`, die noch keine LUFS-Werte in der `metadata.json` haben.
+
+**2) Force: Re-Analysiere ALLE Songs (überschreibt vorhandene LUFS-Daten)**
+
+```powershell
+docker compose -f .\compose.enviroment.yaml run --rm downloader python -u reanalyze_lufs.py --force
+```
+
+**3) Nur spezifische Songs analysieren**
+
+```powershell
+docker compose -f .\compose.enviroment.yaml run --rm downloader python -u reanalyze_lufs.py --files "song1.mp3" "song2.mp3"
+```
+
+**Was wird analysiert?**
+- Jede MP3-Datei wird mit FFmpeg's `loudnorm` Filter analysiert (EBU R128 Standard)
+- LUFS-Werte (Integrated Loudness, True Peak, Loudness Range) werden extrahiert
+- Werte werden in `metadata.json` unter dem `lufs`-Feld gespeichert
+- Dauert ca. 2-5 Sekunden pro Song (einmalig)
+
+**Warum ist das wichtig?**
+Der Monotone Equalizer nutzt diese LUFS-Werte für professionelle Broadcast-Qualität:
+- Songs werden auf -16 LUFS normalisiert (Spotify/YouTube Standard)
+- True Peak Limiting verhindert Clipping
+- Konsistente Lautstärke über alle Songs hinweg
+
 ---
 
 ## Zusatz: signal-cli konfigurieren (signal-cli-rest-api)
 
 Dieses Projekt enthält einen `signal-api`-Service im Compose-Setup (Image: `bbernhard/signal-cli-rest-api`). Nachdem Sie `docker compose up` ausgeführt haben, müssen Sie die Absender-Telefonnummer für den Service registrieren und verifizieren.
 
-1) Öffnen Sie eine Shell im `signal-api`-Container:
+**Wichtig:** Die Nummer in `SIGNAL_NUMBER` (in `metawave_server/.env`) muss mit der hier registrierten Nummer übereinstimmen.
+
+### Schritt-für-Schritt Anleitung
+
+**1) Shell im signal-api Container öffnen:**
 
 ```powershell
 docker compose -f .\compose.enviroment.yaml exec signal-api sh
 ```
 
-2) Captcha-Token erzeugen (für die öffentliche Signal-Registrierung erforderlich):
+Wenn der Container nicht läuft, starten Sie ihn zuerst:
 
-- Öffnen Sie https://signalcaptchas.org/registration/generate.html in Ihrem Browser und lösen Sie das Captcha.
-- Rechtsklicken Sie auf den Link "Open Signal" und kopieren Sie den Token-Wert (die URL enthält `token=...`).
+```powershell
+docker compose -f .\compose.enviroment.yaml up -d signal-api
+```
 
-3) Registrieren Sie die Nummer im Container (ersetzen Sie die Nummer durch Ihre `SIGNAL_NUMBER`):
+**2) Captcha-Token erzeugen:**
+
+- Öffnen Sie https://signalcaptchas.org/registration/generate.html in Ihrem Browser
+- Lösen Sie das Captcha
+- Rechtsklick auf "Open Signal" → "Link-Adresse kopieren"
+- Kopieren Sie den Token-Wert aus der URL (nach `token=`)
+
+**3) Nummer im Container registrieren:**
+
+Ersetzen Sie `+41XXXXXXXX` durch Ihre `SIGNAL_NUMBER`:
 
 ```sh
 signal-cli -u +41XXXXXXXX register --captcha <TOKEN>
 ```
 
-4) Verifizieren Sie mit dem per SMS/Anruf erhaltenen Code:
+Beispiel:
+```sh
+signal-cli -u +41798878717 register --captcha signalcaptcha.1234567890.abcdefgh
+```
+
+**4) SMS/Anruf-Code verifizieren:**
+
+Sie erhalten per SMS oder Anruf einen 6-stelligen Code:
 
 ```sh
 signal-cli -u +41XXXXXXXX verify <CODE>
 ```
 
-5) (Optional) Gerät koppeln oder Testnachricht senden:
+Beispiel:
+```sh
+signal-cli -u +41798878717 verify 123456
+```
+
+**5) Registrierung prüfen (Optional):**
 
 ```sh
 signal-cli -u +41XXXXXXXX listDevices
-signal-cli -u +41XXXXXXXX send -g "<group-id>" "Test Nachricht"
+```
+
+Wenn Geräte aufgelistet werden, war die Registrierung erfolgreich.
+
+**6) Container verlassen:**
+
+```sh
+exit
 ```
 
 Hinweise:
@@ -244,24 +401,61 @@ Häufige Probleme:
 
 ## Schnelltests
 
-Prüfen Sie den Status von `signal-api`:
+### Signal-API Status prüfen:
 
 ```powershell
-curl http://localhost:5000/v1/status
+curl http://localhost:5000/v1/about
 ```
 
-Einen Notification-Run über die App auslösen:
+Erwartete Antwort: JSON mit Version und Build-Information.
+
+### Radio-API testen:
 
 ```powershell
-curl http://localhost:8000/notification/run-job
+# Health Check
+curl http://localhost:8000
+
+# Settings abrufen (benötigt Authentication Token)
+curl http://localhost:8000/api/radio/settings -H "Authorization: Bearer <TOKEN>"
 ```
 
-Direkter REST-API-Test (ersetzen Sie `group-id`/`number`):
+### Notification Job manuell auslösen:
 
 ```powershell
-curl -i -X POST http://localhost:5000/v1/send \
-	-H "Content-Type: application/json" \
-	-d '{"message":"Test Nachricht","number":"+41XXXXXXXX","recipients":["group.<your-group-id>"]}'
+curl -X GET http://localhost:8000/api/notification/run-job
+```
+
+### Signal Testnachricht senden:
+
+Ersetzen Sie `+41XXXXXXXX` durch eine verifizierte Nummer:
+
+```powershell
+curl -X POST http://localhost:5000/v2/send \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Test von MetaWave","number":"+41XXXXXXXX","recipients":["+41YYYYYYYY"]}'
+```
+
+### Metadata & LUFS-Daten prüfen:
+
+```powershell
+# Zeige ersten Song aus metadata.json
+docker compose -f .\compose.enviroment.yaml exec downloader sh -c "head -n 20 /songs/metadata.json"
+
+# Prüfe ob LUFS-Daten vorhanden sind
+docker compose -f .\compose.enviroment.yaml exec downloader sh -c "grep -c '\"lufs\"' /songs/metadata.json"
+```
+
+### Container-Logs ansehen:
+
+```powershell
+# Alle Services
+docker compose -f .\compose.enviroment.yaml logs -f
+
+# Nur Radio-Server
+docker compose -f .\compose.enviroment.yaml logs -f radio
+
+# Nur Downloader (letzte 100 Zeilen)
+docker compose -f .\compose.enviroment.yaml logs --tail 100 downloader
 ```
 
 ## Step 3 | Start Coding!
