@@ -3,6 +3,7 @@ import path from "path";
 import { spawn } from "child_process";
 import EventEmitter from "events";
 import WebSocket from "ws";
+import { Transform } from "stream";
 
 const SONGS_DIR = path.resolve("/songs");
 const METADATA_FILE = path.join(SONGS_DIR, "metadata.json");
@@ -16,8 +17,9 @@ export class RadioEngine extends EventEmitter {
     this.clients = new Set();   // HTTP Clients für /stream
     this.wsClients = new Set(); // WebSocket Clients
     this.volumePercent = 100; // global volume in percent (100 = normal)
-    this._restartSame = false; // internal flag to restart same track (used when applying volume)
+    this._restartSame = false;
     this.currentDecoder = null;
+    this.currentEncoder = null;
     this.currentProcessElapsedTime = 0;
     this.currentVolumeMultiplier = this.volumePercent / 100;
     this.monotoneEnabled = false;
@@ -83,101 +85,103 @@ export class RadioEngine extends EventEmitter {
     console.log("Now playing:", song.title);
 
     const startTime = Date.now();
+    
     this.emit("meta", this.getMeta());
 
-    // Single-Pass FFmpeg mit EBU R128 loudnorm Filter
-    // Verwende gespeicherte LUFS-Werte für precise normalization (Second Pass)
-    const ffmpegArgs = [
+    // New pipeline: decoder -> live gain Transform -> encoder
+    // Decoder: decode to signed 16-bit PCM, 2 channels, 44100 Hz
+    const decoderArgs = [
       "-re",
-      "-i", filePath
+      "-i", filePath,
+      "-f", "s16le",
+      "-acodec", "pcm_s16le",
+      "-ac", "2",
+      "-ar", "44100",
+      "pipe:1"
     ];
 
-    // Audio Filter Chain aufbauen
-    let audioFilters = [];
-
-    // 1. EBU R128 Loudness Normalization (wenn LUFS-Daten vorhanden)
-    if (this.monotoneEnabled && song.lufs) {
-      const targetLUFS = -16.0;
-      const targetTP = -1.5;
-      const targetLRA = 11.0;
-      const currentLUFS = song.lufs.input_i;
-      
-      // Entscheide ob normalisiert werden soll:
-      // - Immer boosten wenn Song zu leise (< -16 LUFS)
-      // - Nur reduzieren wenn reduceLoud aktiviert UND Song zu laut (> -16 LUFS)
-      const shouldNormalize = currentLUFS < targetLUFS || this.monotoneReduceLoud;
-      
-      if (shouldNormalize) {
-        // Second Pass mit gemessenen Werten für precise normalization
-        const loudnormFilter = `loudnorm=I=${targetLUFS}:TP=${targetTP}:LRA=${targetLRA}:` +
-          `measured_I=${song.lufs.input_i}:` +
-          `measured_TP=${song.lufs.input_tp}:` +
-          `measured_LRA=${song.lufs.input_lra}:` +
-          `measured_thresh=${song.lufs.input_thresh}:` +
-          `offset=${song.lufs.target_offset}:` +
-          `linear=true:print_format=summary`;
-        
-        audioFilters.push(loudnormFilter);
-        
-        if (currentLUFS < targetLUFS) {
-          console.log(`[LUFS] ⬆️  Boost ${song.title}: ${currentLUFS.toFixed(1)} → ${targetLUFS} LUFS`);
-        } else {
-          console.log(`[LUFS] ⬇️  Reduce ${song.title}: ${currentLUFS.toFixed(1)} → ${targetLUFS} LUFS`);
-        }
-      } else {
-        console.log(`[LUFS] ➡️  Skip ${song.title}: ${currentLUFS.toFixed(1)} LUFS (bereits laut genug)`);
-      }
-    } else if (this.monotoneEnabled && !song.lufs) {
-      // Fallback: First Pass loudnorm (langsamer, aber funktioniert ohne gespeicherte Werte)
-      console.log(`[LUFS] Keine LUFS-Daten für ${song.title}, verwende First-Pass Normalisierung`);
-      audioFilters.push("loudnorm=I=-16:TP=-1.5:LRA=11:print_format=summary");
-    }
-
-    // 2. Volume Control (User-Lautstärke)
-    const volumeFilter = `volume=${(this.currentVolumeMultiplier ?? (this.volumePercent / 100)).toFixed(3)}`;
-    audioFilters.push(volumeFilter);
-
-    // Audio Filter Chain zu FFmpeg Args hinzufügen
-    if (audioFilters.length > 0) {
-      ffmpegArgs.push("-af", audioFilters.join(","));
-    }
-
-    // Output format
-    ffmpegArgs.push(
+    const encoderArgs = [
+      "-f", "s16le",
+      "-ar", "44100",
+      "-ac", "2",
+      "-i", "pipe:0",
       "-f", "mp3",
       "-b:a", "128k",
       "pipe:1"
-    );
+    ];
 
-    const ffmpegProcess = spawn("ffmpeg", ffmpegArgs, { stdio: ["ignore", "pipe", "pipe"] });
-    
-    this.currentDecoder = ffmpegProcess;  // Für Skip/Previous Kompatibilität
-    this.currentEncoder = null;  // Nicht mehr benötigt (Single-Pass)
+    const decoder = spawn("ffmpeg", decoderArgs, { stdio: ["ignore", "pipe", "pipe"] });
+    const encoder = spawn("ffmpeg", encoderArgs, { stdio: ["pipe", "pipe", "pipe"] });
+
+    this.currentDecoder = decoder;
+    this.currentEncoder = encoder;
     this.currentProcessElapsedTime = 0;
 
+    // Live gain transform: applies currentVolumeMultiplier and optional LUFS-based gain
+    const SAMPLE_MAX = 32767;
+    class GainTransform extends Transform {
+      constructor(getMultiplier) {
+        super();
+        this.getMultiplier = getMultiplier;
+      }
+      _transform(chunk, encoding, callback) {
+        try {
+          const mult = this.getMultiplier() || 1;
+          // operate on 16-bit samples
+          const out = Buffer.alloc(chunk.length);
+          for (let i = 0; i < chunk.length; i += 2) {
+            const sample = chunk.readInt16LE(i);
+            let s = Math.round(sample * mult);
+            if (s > SAMPLE_MAX) s = SAMPLE_MAX;
+            if (s < -SAMPLE_MAX - 1) s = -SAMPLE_MAX - 1;
+            out.writeInt16LE(s, i);
+          }
+          this.push(out);
+          callback();
+        } catch (err) {
+          callback(err);
+        }
+      }
+    }
+
+    const getMultiplier = () => {
+      const vol = this.currentVolumeMultiplier ?? (this.volumePercent / 100);
+      let monoMult = 1;
+      if (this.monotoneEnabled && song.lufs) {
+        const targetLUFS = -16.0;
+        const currentLUFS = song.lufs.input_i;
+        let gainDb = targetLUFS - currentLUFS; // positive => boost, negative => reduce
+        if (gainDb < 0 && !this.monotoneReduceLoud) gainDb = 0;
+        monoMult = Math.pow(10, gainDb / 20);
+      }
+      return vol * monoMult;
+    };
+
+    const gainTransform = new GainTransform(getMultiplier);
+
+    // Pipe decoder -> gainTransform -> encoder
+    decoder.stdout.pipe(gainTransform).pipe(encoder.stdin);
+
     // MP3 Stream direkt zu Clients streamen
-    ffmpegProcess.stdout.on("data", (mp3chunk) => {
+    encoder.stdout.on("data", (mp3chunk) => {
       this.currentProcessElapsedTime = Math.floor((Date.now() - startTime) / 1000);
-      
       for (const res of this.clients) try { res.write(mp3chunk); } catch (e) {}
       for (const ws of this.wsClients) {
         if (ws.readyState === WebSocket.OPEN) try { ws.send(mp3chunk); } catch (e) {}
       }
     });
 
-    const onExit = () => {
+    const onExit = (code, signal) => {
+      // Cleanup references
       this.currentDecoder = null;
       this.currentEncoder = null;
 
-      if (this._restartSame) {
-        this._restartSame = false;
-      } else {
-        this.currentIndex++;
-        if (this.currentIndex >= this.queue.length) {
-          console.log("Ende der Queue erreicht, shuffle und beginne von vorn.");
-          this.shuffleQueue();
-          this.currentIndex = 0;
-        }
+      // advance to next track
+      this.currentIndex++;
+      if (this.currentIndex >= this.queue.length) {
+        console.log("Ende der Queue erreicht, shuffle und beginne von vorn.");
+        this.shuffleQueue();
+        this.currentIndex = 0;
       }
 
       const meta = this.getMeta();
@@ -191,14 +195,17 @@ export class RadioEngine extends EventEmitter {
       this.playNext();
     };
 
-    ffmpegProcess.on("exit", onExit);
-    ffmpegProcess.stderr.on("data", (chunk) => {
-      // FFmpeg gibt loudnorm Stats in stderr aus - nur bei Fehlern loggen
+    const handleErr = (chunk) => {
       const msg = chunk.toString();
       if (msg.includes("error") || msg.includes("Error")) {
         console.error("[FFmpeg Error]", msg);
       }
-    });
+    };
+
+    decoder.on("exit", onExit);
+    encoder.on("exit", onExit);
+    decoder.stderr.on("data", handleErr);
+    encoder.stderr.on("data", handleErr);
   }
 
   setVolume(percent) {
@@ -207,16 +214,8 @@ export class RadioEngine extends EventEmitter {
     this.volumePercent = clamped;
     this.currentVolumeMultiplier = clamped / 100;
     this.broadcastVolumeUpdate();
-
-    // Bei laufendem Track: Neustart mit neuer Lautstärke
-    // (FFmpeg kann Volume nicht live ändern bei unserem Setup)
-    if (this.currentDecoder) {
-      console.log(`[Volume] Setze Lautstärke auf ${clamped}%, starte Track neu...`);
-      this._restartSame = true;
-      try { 
-        if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); 
-      } catch (e) {}
-    }
+    // Live gain transform nutzt `this.currentVolumeMultiplier` so that
+    // volume changes are applied immediately without restarting the decoder/encoder.
   }
 
   broadcastVolumeUpdate() {
@@ -400,28 +399,18 @@ export class RadioEngine extends EventEmitter {
     this.monotoneEnabled = Boolean(enabled);
     console.log(`EBU R128 Loudness Normalization ${this.monotoneEnabled ? 'enabled' : 'disabled'}`);
     
-    // Bei laufendem Track: Neustart mit neuer Einstellung
-    if (this.currentDecoder) {
-      console.log(`[Monotone] Wende EBU R128 an, starte Track neu...`);
-      this._restartSame = true;
-      try { 
-        if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); 
-      } catch (e) {}
-    }
+    this.broadcastSettingsUpdate();
+    // Live gain transform reads `this.monotoneEnabled` and `this.monotoneReduceLoud` dynamically.
+    // No restart/killing of ffmpeg necessary.
   }
 
   setMonotoneReduceLoud(enabled) {
     this.monotoneReduceLoud = Boolean(enabled);
     console.log(`EBU R128 Reduce Loud Songs ${this.monotoneReduceLoud ? 'enabled' : 'disabled'}`);
     
-    // Bei laufendem Track: Neustart mit neuer Einstellung
-    if (this.currentDecoder && this.monotoneEnabled) {
-      console.log(`[Monotone] Toggle Reduce Loud, starte Track neu...`);
-      this._restartSame = true;
-      try { 
-        if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); 
-      } catch (e) {}
-    }
+    this.broadcastSettingsUpdate();
+    // Live gain transform reads `this.monotoneReduceLoud` dynamically.
+    // No restart required.
   }
 
   getSettings() {
@@ -429,6 +418,17 @@ export class RadioEngine extends EventEmitter {
       monotoneEnabled: this.monotoneEnabled,
       monotoneReduceLoud: this.monotoneReduceLoud
     };
+  }
+
+  broadcastSettingsUpdate() {
+    const payload = JSON.stringify({
+      type: "settingsUpdated",
+      settings: this.getSettings()
+    });
+
+    for (const ws of this.wsClients) {
+      if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+    }
   }
 }
 
