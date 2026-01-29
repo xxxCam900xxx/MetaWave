@@ -26,6 +26,8 @@ export class RadioEngine extends EventEmitter {
     this.monotoneReduceLoud = false;  // Toggle: Auch laute Songs reduzieren?
     this.minArtistDistance = 5; // Minimum number of songs between same artist
     this.lastGainWasZero = false; // Track if last song had zero gain (for logging)
+    this.lastQueueHash = null; // Cache Hash für Queue-State
+    this.cachedQueueState = null; // Gecachter Queue-State
     this.loadQueue();
   }
 
@@ -212,6 +214,10 @@ export class RadioEngine extends EventEmitter {
         this.currentIndex = 0;
       }
 
+      // Cache invalidieren weil currentIndex sich geändert hat
+      this.lastQueueHash = null;
+      this.cachedQueueState = null;
+
       const meta = this.getMeta();
       for (const ws of this.wsClients) {
         if (ws.readyState === WebSocket.OPEN) {
@@ -265,6 +271,9 @@ export class RadioEngine extends EventEmitter {
       // Smart shuffle with artist distance
       this.queue = this.smartShuffle(this.queue);
     }
+    // Cache invalidieren
+    this.lastQueueHash = null;
+    this.cachedQueueState = null;
     this.broadcastQueueUpdate();
   }
 
@@ -346,6 +355,10 @@ export class RadioEngine extends EventEmitter {
 
       this.queue = [...played, target, ...shuffledLeftovers];
       
+      // Cache invalidieren weil Queue sich geändert hat
+      this.lastQueueHash = null;
+      this.cachedQueueState = null;
+      
       // Der gewünschte Song ist jetzt an Position played.length
       const newIndex = played.length;
       
@@ -383,6 +396,10 @@ export class RadioEngine extends EventEmitter {
       const insertPos = newCurrent + 1;
       this.queue.splice(insertPos, 0, target);
 
+      // Cache invalidieren weil Queue sich geändert hat
+      this.lastQueueHash = null;
+      this.cachedQueueState = null;
+
       if (this.currentDecoder) {
         this.currentIndex = newCurrent;
         try { 
@@ -414,7 +431,17 @@ export class RadioEngine extends EventEmitter {
   }
 
   getQueueState() {
-    return {
+    // Erstelle einen Hash aus relevanten Queue-Informationen
+    const queueHash = `${this.currentIndex}_${this.queue.length}_${this.queue.map(s => s.filename).join(',')}`;
+    
+    // Nutze gecachten State wenn Queue sich nicht geändert hat
+    if (this.lastQueueHash === queueHash && this.cachedQueueState) {
+      // Update nur die sich ändernden Felder (elapsed time)
+      return this.cachedQueueState;
+    }
+    
+    // Erstelle neuen Queue-State
+    const queueState = {
       nowPlayingIndex: this.currentIndex,
       nowPlaying: this.queue[this.currentIndex]?.filename || "",
       queue: this.queue.map((song, index) => ({
@@ -422,12 +449,19 @@ export class RadioEngine extends EventEmitter {
         title: song.title,
         author: song.author,
         duration: song.duration,
+        // Cover-URL nur einmal senden, nicht bei jedem Update
         cover: song.cover,
         index,
         isPlaying: index === this.currentIndex,
         hasBeenPlayed: (typeof song.hasBeenPlayed === "boolean") ? song.hasBeenPlayed : (index < this.currentIndex)
       }))
     };
+    
+    // Cache speichern
+    this.lastQueueHash = queueHash;
+    this.cachedQueueState = queueState;
+    
+    return queueState;
   }
 
   shuffleRemaining() {
@@ -444,11 +478,17 @@ export class RadioEngine extends EventEmitter {
       // Smart shuffle with artist distance, considering last played song
       const shuffled = this.smartShuffle(remaining, played[played.length - 1]);
       this.queue = [...played, ...shuffled];
+      // Cache invalidieren
+      this.lastQueueHash = null;
+      this.cachedQueueState = null;
       this.broadcastQueueUpdate();
       return;
     }
 
     this.queue = [...played, ...remaining];
+    // Cache invalidieren
+    this.lastQueueHash = null;
+    this.cachedQueueState = null;
     this.broadcastQueueUpdate();
   }
 

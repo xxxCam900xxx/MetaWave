@@ -57,13 +57,31 @@ export default function PlayerScreen() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState<number>(100);
   const [error, setError] = useState<string | null>(null);
+  const [localElapsedTime, setLocalElapsedTime] = useState<number>(0);
   const soundRef = useRef<Audio.Sound | null>(null);
   const tokenRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const metaIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wsReconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const localTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const authIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queueScrollRef = useRef<any>(null);
   const queueItemLayoutRef = useRef<Record<number, number>>({});
+  const volumeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastMetaUpdateRef = useRef<number>(Date.now());
+  const currentSongDurationRef = useRef<number>(0);
+  const serverElapsedRef = useRef<number>(0);  // Letzte elapsed time vom Server
+  const serverTimestampRef = useRef<number>(Date.now());  // Zeitpunkt des letzten Updates
+
+  // Helper: Server-Zeit speichern - Timer berechnet sich daraus automatisch
+  const updateServerTime = React.useCallback((elapsed: number, duration: number) => {
+    console.log(`[Timer] Updating server time: ${elapsed}s / ${duration}s`);
+    serverElapsedRef.current = elapsed;
+    serverTimestampRef.current = Date.now();
+    currentSongDurationRef.current = duration;
+    // Force UI update
+    setLocalElapsedTime(elapsed);
+  }, []);
 
   useEffect(() => {
     const init = async () => {
@@ -82,14 +100,36 @@ export default function PlayerScreen() {
         });
 
         await startStream();
+        // Initial Metadata & Queue laden
         await fetchMetadata();
         await fetchQueue();
         await loadVolume();
         setupWebSocket();
         await validateToken();
 
-        metaIntervalRef.current = setInterval(fetchMetadata, 1000);
+        // Kein HTTP-Polling mehr! WebSocket liefert alle Updates in Echtzeit
+        // Nur Auth-Token alle 10 Minuten refreshen
         authIntervalRef.current = setInterval(validateToken, 600000);
+        
+        // Sync-Check alle 10 Sekunden - korrigiert Timer-Drift ohne Performance-Verlust
+        syncIntervalRef.current = setInterval(syncCheck, 10000);
+        
+        // EIN einziger Timer - berechnet elapsed time basierend auf Server-Zeit + lokaler Zeitdifferenz
+        localTimerRef.current = setInterval(() => {
+          const now = Date.now();
+          const timeSinceUpdate = (now - serverTimestampRef.current) / 1000;  // In Sekunden
+          const calculatedElapsed = serverElapsedRef.current + timeSinceUpdate;
+          const maxDuration = currentSongDurationRef.current;
+          
+          // Begrenzen auf Song-Duration
+          if (maxDuration > 0 && calculatedElapsed > maxDuration) {
+            setLocalElapsedTime(maxDuration);
+          } else {
+            setLocalElapsedTime(Math.floor(calculatedElapsed));
+          }
+        }, 100);  // 10x pro Sekunde für smoothness
+        
+        console.log(`[Init] Started calculation-based timer`);
       } catch (err) {
         setError("Konnte Audio-Stream nicht starten.");
       } finally {
@@ -100,15 +140,30 @@ export default function PlayerScreen() {
     init();
 
     return () => {
-      if (metaIntervalRef.current) {
-        clearInterval(metaIntervalRef.current);
-        metaIntervalRef.current = null;
+      if (localTimerRef.current) {
+        clearInterval(localTimerRef.current);
+        localTimerRef.current = null;
       }
 
-        if (authIntervalRef.current) {
-          clearInterval(authIntervalRef.current);
-          authIntervalRef.current = null;
-        }
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+        syncIntervalRef.current = null;
+      }
+
+      if (authIntervalRef.current) {
+        clearInterval(authIntervalRef.current);
+        authIntervalRef.current = null;
+      }
+
+      if (wsReconnectTimeoutRef.current) {
+        clearTimeout(wsReconnectTimeoutRef.current);
+        wsReconnectTimeoutRef.current = null;
+      }
+
+      if (volumeDebounceRef.current) {
+        clearTimeout(volumeDebounceRef.current);
+        volumeDebounceRef.current = null;
+      }
 
       if (wsRef.current) {
         wsRef.current.close();
@@ -123,16 +178,34 @@ export default function PlayerScreen() {
   const setupWebSocket = () => {
     if (!tokenRef.current) return;
 
+    // Clear any pending reconnect
+    if (wsReconnectTimeoutRef.current) {
+      clearTimeout(wsReconnectTimeoutRef.current);
+      wsReconnectTimeoutRef.current = null;
+    }
+
     try {
       const wsUrl = WS_BASE + `/?token=${encodeURIComponent(tokenRef.current)}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
+      ws.onopen = () => {
+        console.log("WebSocket verbunden");
+      };
+
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           if (data?.type === "trackChanged" && data.meta) {
+            const newTitle = data.meta.title || "Unknown";
+            const newElapsed = data.meta.elapsed || 0;
+            const newDuration = data.meta.duration || 0;
+            
+            console.log(`[WS] Track changed: "${newTitle}" - Elapsed: ${newElapsed}s / Duration: ${newDuration}s`);
+            
             setMeta(data.meta as StreamMeta);
+            updateServerTime(newElapsed, newDuration);
+            lastMetaUpdateRef.current = Date.now();
           }
           if (data?.type === "queueUpdated" && data.queue) {
             const q = Array.isArray(data.queue?.queue) ? data.queue.queue : data.queue;
@@ -147,14 +220,22 @@ export default function PlayerScreen() {
       };
 
       ws.onerror = () => {
-        // Fehler im Stillen ignorieren; HTTP-Fallback ist bereits geladen
+        console.log("WebSocket Fehler");
       };
 
       ws.onclose = () => {
+        console.log("WebSocket geschlossen, versuche Reconnect in 3s...");
         wsRef.current = null;
+        // Auto-Reconnect nach 3 Sekunden
+        wsReconnectTimeoutRef.current = setTimeout(() => {
+          setupWebSocket();
+        }, 3000);
       };
     } catch {
-      // Wenn WS gar nicht erreichbar ist, bleibt HTTP-Initialzustand erhalten
+      // Wenn WS gar nicht erreichbar ist, versuche erneut nach 5s
+      wsReconnectTimeoutRef.current = setTimeout(() => {
+        setupWebSocket();
+      }, 5000);
     }
   };
 
@@ -209,6 +290,42 @@ export default function PlayerScreen() {
       }
     } catch (e) {
       // Ignore validation errors silently
+    }
+  };
+
+  // Sync-Check: Prüft alle 10s ob lokaler Timer mit Server synchron ist
+  const syncCheck = async () => {
+    if (!tokenRef.current || !meta) return;
+    
+    try {
+      const res = await fetch(`${API_BASE}/stream/meta/currentsong`, {
+        headers: { Authorization: `Bearer ${tokenRef.current}` },
+      });
+      
+      if (!res.ok) return;
+      
+      const json = await res.json();
+      if (json?.metadata) {
+        const serverElapsed = json.metadata.elapsed || 0;
+        const currentLocal = localElapsedTime;
+        const diff = Math.abs(serverElapsed - currentLocal);
+        
+        // Nur bei großer Abweichung (>2s) korrigieren
+        if (diff > 2) {
+          console.log(`[Sync] Drift detected: ${diff}s (Local: ${currentLocal}s, Server: ${serverElapsed}s) - Correcting...`);
+          
+          // Prüfe ob es ein anderer Song ist (filename hat sich geändert)
+          if (json.metadata.filename !== meta.filename) {
+            console.log(`[Sync] Different song detected! Updating...`);
+            setMeta(json.metadata);
+          }
+          
+          // Server-Zeit aktualisieren (für beide Fälle)
+          updateServerTime(serverElapsed, json.metadata.duration || 0);
+        }
+      }
+    } catch (e) {
+      // Ignore sync errors
     }
   };
 
@@ -271,7 +388,16 @@ export default function PlayerScreen() {
       if (!res.ok) return;
 
       const json = await res.json();
-      if (json?.metadata) setMeta(json.metadata);
+      if (json?.metadata) {
+        const newMeta = json.metadata;
+        const elapsed = newMeta.elapsed || 0;
+        const duration = newMeta.duration || 0;
+        
+        console.log(`[HTTP] Metadata fetched: "${newMeta.title}" - Elapsed: ${elapsed}s / Duration: ${duration}s`);
+        
+        setMeta(newMeta);
+        updateServerTime(elapsed, duration);
+      }
     } catch (err) {
       // Ignore polling errors briefly
     }
@@ -323,6 +449,21 @@ export default function PlayerScreen() {
           Authorization: `Bearer ${tokenRef.current}`,
         },
       });
+      
+      console.log("Control called:", path);
+      
+      // Bei Skip/Previous/JumpTo: Sofort Zeit zurücksetzen und Metadata holen
+      // WebSocket ist oft verzögert, daher manueller Fallback
+      if (path.includes('/skip') || path.includes('/previous') || path.includes('/jumpto')) {
+        // Sofort auf 0 setzen für schnelles UI-Feedback
+        updateServerTime(0, currentSongDurationRef.current);
+        
+        // Nach kurzer Wartezeit Metadata vom Server holen
+        setTimeout(async () => {
+          await fetchMetadata();
+          console.log("[Control] Metadata fetched after control command");
+        }, 300);
+      }
     } catch (err) {
       Alert.alert("Fehler", "Steuerbefehl konnte nicht gesendet werden.");
     }
@@ -331,14 +472,26 @@ export default function PlayerScreen() {
   const changeVolume = async (delta: number) => {
     if (!tokenRef.current) return;
     const newV = Math.max(0, Math.min(200, Math.round((volume || 0) + delta)));
-    try {
-      await fetch(`${API_BASE}/stream/control/sound/${newV}`, {
-        headers: { Authorization: `Bearer ${tokenRef.current}` },
-      });
-      setVolume(newV);
-    } catch (err) {
-      Alert.alert("Fehler", "Lautstärke konnte nicht gesetzt werden.");
+    
+    // Optimistic UI update
+    setVolume(newV);
+    
+    // Debounce API call - reduziert Requests bei schnellen Änderungen
+    if (volumeDebounceRef.current) {
+      clearTimeout(volumeDebounceRef.current);
     }
+    
+    volumeDebounceRef.current = setTimeout(async () => {
+      try {
+        await fetch(`${API_BASE}/stream/control/sound/${newV}`, {
+          headers: { Authorization: `Bearer ${tokenRef.current}` },
+        });
+      } catch (err) {
+        // Revert auf Server-Wert bei Fehler
+        await loadVolume();
+        Alert.alert("Fehler", "Lautstärke konnte nicht gesetzt werden.");
+      }
+    }, 300); // 300ms debounce
   };
 
   const logout = async () => {
@@ -347,11 +500,11 @@ export default function PlayerScreen() {
   };
 
   const progress = (() => {
-    if (!meta?.duration || !meta?.elapsed) return 0;
-    return Math.min(1, Math.max(0, meta.elapsed / meta.duration));
+    if (!meta?.duration || !localElapsedTime) return 0;
+    return Math.min(1, Math.max(0, localElapsedTime / meta.duration));
   })();
 
-  const elapsedSeconds = meta?.elapsed ?? 0;
+  const elapsedSeconds = localElapsedTime;
   const durationSeconds = meta?.duration ?? 0;
   const remainingSeconds = Math.max(0, durationSeconds - elapsedSeconds);
 
@@ -467,17 +620,22 @@ export default function PlayerScreen() {
                 maxHeight: isDesktop ? windowHeight * 0.7 : windowHeight * 0.4,
               }}
             >
-              {queue.map((item) => {
+              {queue.map((item, arrayIndex) => {
                 const active = item.isPlaying;
                 const played = item.hasBeenPlayed && !active;
+                // Verwende item.index vom Server (korrekte Queue-Position)
+                const queueIndex = item.index;
                 return (
                   <TouchableOpacity
-                    key={item.index}
+                    key={`${queueIndex}-${item.song}`}
                     onLayout={(e) => {
-                      queueItemLayoutRef.current[item.index] = e.nativeEvent.layout.y;
+                      queueItemLayoutRef.current[queueIndex] = e.nativeEvent.layout.y;
                     }}
                     style={[styles.queueItem, played && styles.queueItemPlayed, active && styles.queueItemActive]}
-                    onPress={() => callControl(`/stream/control/jumpto/${item.index}`)}
+                    onPress={() => {
+                      console.log(`Queue item clicked: Array Index ${arrayIndex}, Queue Index ${queueIndex}, Song: ${item.title}`);
+                      callControl(`/stream/control/jumpto/${queueIndex}`);
+                    }}
                     activeOpacity={0.7}
                   >
                     {item.cover ? (

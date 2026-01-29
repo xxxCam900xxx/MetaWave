@@ -1,6 +1,7 @@
 import express from "express";
 import http from "http";
 import cors from "cors";
+import compression from "compression";
 import { setupSwagger } from "./swagger/SwaggerLogic.js";
 import cron from "node-cron";
 
@@ -37,6 +38,17 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 console.log("CORS allowed origins:", Array.from(allowedOrigins));
+
+// Compression für alle Responses - reduziert Datengröße drastisch
+app.use(compression({
+  level: 6, // Balanciert zwischen Geschwindigkeit und Kompression
+  threshold: 1024, // Komprimiere nur Responses > 1KB
+  filter: (req, res) => {
+    // Komprimiere keine Audio-Streams
+    if (req.path === '/stream') return false;
+    return compression.filter(req, res);
+  }
+}));
 
 app.use(
    cors({
