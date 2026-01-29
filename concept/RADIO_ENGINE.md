@@ -280,14 +280,14 @@ decoder.stdout.pipe(gainTransform).pipe(encoder.stdin);
 setVolume(percent) {
   this.currentVolumeMultiplier = percent / 100;
   this.broadcastVolumeUpdate();
-  // ✅ Kein Neustart nötig - GainTransform liest dynamisch!
+  // Kein Neustart nötig - GainTransform liest dynamisch!
 }
 
 // LUFS Änderung
 setMonotoneEnabled(enabled) {
   this.monotoneEnabled = enabled;
   this.broadcastSettingsUpdate();
-  // ✅ Kein Neustart nötig - GainTransform liest dynamisch!
+  // Kein Neustart nötig - GainTransform liest dynamisch!
 }
 ```
 
@@ -534,8 +534,8 @@ Song:  A    B    C    D    E   [A?]  F    G    H    I
        └─────────────────────────┘
               5 Songs Abstand
 
-✅ A kann bei Index 5 NICHT gespielt werden (nur 4 Songs dazwischen)
-✅ A kann bei Index 6+ gespielt werden (5+ Songs dazwischen)
+A kann bei Index 5 NICHT gespielt werden (nur 4 Songs dazwischen)
+A kann bei Index 6+ gespielt werden (5+ Songs dazwischen)
 ```
 
 ---
@@ -554,7 +554,7 @@ skip() {
       if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); 
       if (this.currentEncoder) this.currentEncoder.kill("SIGKILL");
     } catch (e) {}
-    // ✅ onExit Handler macht automatisch currentIndex++ und playNext()
+    // onExit Handler macht automatisch currentIndex++ und playNext()
   }
 }
 ```
@@ -690,7 +690,7 @@ setVolume(percent) {
   this.volumePercent = clamped;
   this.currentVolumeMultiplier = clamped / 100;
   this.broadcastVolumeUpdate();
-  // ✅ Änderung wird sofort angewendet durch Live Gain Transform!
+  // Änderung wird sofort angewendet durch Live Gain Transform!
 }
 ```
 
@@ -875,12 +875,12 @@ broadcastQueueUpdate() {
 
 Die RadioEngine ist eine hochentwickelte Audio-Streaming-Engine mit:
 
-✅ **Flexible Playback Pipeline**: Decoder → Live Gain → Encoder  
-✅ **Echtzeit Audio Processing**: Volume & LUFS ohne Neustart  
-✅ **Smart Shuffle**: Artist Distance mit intelligentem Greedy-Algorithmus  
-✅ **Robuste Artist Erkennung**: Author Field + Title Pattern Matching  
-✅ **WebSocket Broadcasting**: Echtzeit-Updates für alle Clients  
-✅ **Saubere Prozess-Verwaltung**: Keine Zombie-Prozesse oder Memory Leaks  
-✅ **EBU R128 Normalisierung**: Professionelle Broadcast-Qualität  
+**Flexible Playback Pipeline**: Decoder → Live Gain → Encoder  
+**Echtzeit Audio Processing**: Volume & LUFS ohne Neustart  
+**Smart Shuffle**: Artist Distance mit intelligentem Greedy-Algorithmus  
+**Robuste Artist Erkennung**: Author Field + Title Pattern Matching  
+**WebSocket Broadcasting**: Echtzeit-Updates für alle Clients  
+**Saubere Prozess-Verwaltung**: Keine Zombie-Prozesse oder Memory Leaks  
+**EBU R128 Normalisierung**: Professionelle Broadcast-Qualität  
 
 Die Architektur ermöglicht maximale Flexibilität bei gleichzeitig minimaler Latenz und optimalem Ressourcen-Management.

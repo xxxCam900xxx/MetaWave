@@ -18,8 +18,15 @@ router.get("/", (req, res) => {
 });
 
 // Metadata endpoints
-router.get("/meta/currentsong", (req, res) => res.json({ status: 200, message: "Displaying the metadata for the currently playing song", metadata: radio.getMeta() }));
-router.get("/meta/queue", (req, res) => res.json({ status: 200, message: "Displaying the metadata for all songs in Queue", metadata: radio.getQueueState().queue }));
+router.get("/meta/currentsong", (req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+  res.json({ status: 200, message: "Displaying the metadata for the currently playing song", metadata: radio.getMeta() });
+});
+
+router.get("/meta/queue", (req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=3, stale-while-revalidate=10");
+  res.json({ status: 200, message: "Displaying the metadata for all songs in Queue", metadata: radio.getQueueState().queue });
+});
 
 // Control Endpoints
 router.get("/control/skip", (req, res) => { radio.skip(); res.json({ status: 200, message: "Song has been skipped" }); });
@@ -41,6 +48,7 @@ router.get("/control/volume", (req, res) => {
 
 // Settings endpoints
 router.get("/settings", (req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=5, stale-while-revalidate=10");
   return res.json({ status: 200, ...radio.getSettings() });
 });
 
