@@ -508,6 +508,176 @@ paths:
         "401":
           description: Unauthorized
 
+  /stream/settings:
+    get:
+      tags:
+        - Radio
+      summary: Alle Radio-Einstellungen abfragen
+      description: Liefert die aktuellen Einstellungen für EBU R128 Loudness Normalization und Minimum Artist Distance.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Aktuelle Einstellungen
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  monotoneEnabled:
+                    type: boolean
+                    example: false
+                  monotoneReduceLoud:
+                    type: boolean
+                    example: false
+                  minArtistDistance:
+                    type: integer
+                    example: 5
+                    description: Minimale Anzahl von Songs zwischen demselben Künstler
+        "401":
+          description: Unauthorized
+
+  /stream/settings/monotone:
+    post:
+      tags:
+        - Radio
+      summary: EBU R128 Loudness Normalization ein-/ausschalten
+      description: Aktiviert oder deaktiviert die automatische Lautstärke-Normalisierung basierend auf LUFS-Werten.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                  example: true
+              required:
+                - enabled
+      responses:
+        "200":
+          description: Einstellung erfolgreich geändert
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: EBU R128 Loudness Normalization enabled
+                  monotoneEnabled:
+                    type: boolean
+                    example: true
+        "400":
+          description: Ungültige Anfrage
+        "401":
+          description: Unauthorized
+
+  /stream/settings/monotone/reduce-loud:
+    post:
+      tags:
+        - Radio
+      summary: EBU R128 Reduce Loud Songs ein-/ausschalten
+      description: Bestimmt, ob auch laute Songs reduziert werden sollen (nur aktiv wenn Monotone aktiviert ist).
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                  example: false
+              required:
+                - enabled
+      responses:
+        "200":
+          description: Einstellung erfolgreich geändert
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: EBU R128 Reduce Loud Songs disabled
+                  monotoneReduceLoud:
+                    type: boolean
+                    example: false
+        "400":
+          description: Ungültige Anfrage
+        "401":
+          description: Unauthorized
+
+  /stream/settings/artist-distance:
+    post:
+      tags:
+        - Radio
+      summary: Minimale Artist Distance setzen
+      description: |
+        Legt fest, wie viele Songs mindestens zwischen Songs desselben Künstlers liegen sollen.
+        - 0 = deaktiviert (Standard-Shuffle)
+        - ≥ 1 = Smart Shuffle mit Künstler-Abstand
+        
+        Der Smart Shuffle Algorithmus verhindert, dass der gleiche Künstler zu häufig hintereinander spielt.
+        Bei Shuffle-Operationen werden Songs so angeordnet, dass möglichst viel Abstand zwischen Songs desselben Künstlers liegt.
+        
+        Edge Cases:
+        - Wenn zu wenige verschiedene Künstler vorhanden sind, wird der bestmögliche Abstand gewählt
+        - Der Algorithmus fällt gracefully zurück, wenn die Regel mathematisch nicht erfüllbar ist
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                distance:
+                  type: integer
+                  minimum: 0
+                  example: 5
+                  description: Anzahl der Songs, die mindestens zwischen demselben Künstler liegen sollen
+              required:
+                - distance
+      responses:
+        "200":
+          description: Einstellung erfolgreich geändert
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: Minimum artist distance set to 5 songs
+                  minArtistDistance:
+                    type: integer
+                    example: 5
+        "400":
+          description: Ungültige Anfrage (distance muss eine nicht-negative Zahl sein)
+        "401":
+          description: Unauthorized
+
   # ======================
   # Notification
   # ======================

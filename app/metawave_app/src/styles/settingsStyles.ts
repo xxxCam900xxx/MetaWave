@@ -79,6 +79,42 @@ export const settingsStyles = StyleSheet.create({
     color: "#aaaaaa",
     lineHeight: 20,
   },
+  settingCard: {
+    backgroundColor: "#282828",
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  sliderContainer: {
+    marginTop: 20,
+  },
+  sliderHeader: {
+    marginBottom: 12,
+    alignItems: "center",
+  },
+  sliderValue: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#2196F3",
+  },
+  slider: {
+    width: "100%",
+    height: 40,
+  },
+  sliderLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+  sliderLabelText: {
+    fontSize: 12,
+    color: "#888888",
+  },
   infoBox: {
     backgroundColor: "#282828",
     borderRadius: 16,

@@ -70,4 +70,17 @@ router.post("/settings/monotone/reduce-loud", (req, res) => {
   });
 });
 
+router.post("/settings/artist-distance", (req, res) => {
+  const { distance } = req.body;
+  if (typeof distance !== "number" || distance < 0) {
+    return res.status(400).json({ status: 400, message: "Invalid distance value. Must be a non-negative number." });
+  }
+  radio.setMinArtistDistance(distance);
+  return res.json({ 
+    status: 200, 
+    message: `Minimum artist distance set to ${radio.minArtistDistance} songs`, 
+    minArtistDistance: radio.minArtistDistance 
+  });
+});
+
 export default router;

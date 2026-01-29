@@ -461,7 +461,7 @@ Kurze Beschreibung der Änderungen.
 MetaWave verwendet **EBU R128** (LUFS) für professionelle Lautstärke-Normalisierung:
 
 - **Zwei-Pass-Workflow**: Pre-Analyse beim Download → Playback mit gespeicherten Werten
-- **Target**: -16 LUFS (Broadcasting-Standard wie Spotify/YouTube)
+- **Target**: -14 LUFS (Broadcasting-Standard wie Spotify/YouTube)
 - **True Peak Limiting**: -1.5 dBTP
 
 **Technische Details:** [concept/MONOTONE_EQUALIZER.md](concept/MONOTONE_EQUALIZER.md) - Migration von RMS zu LUFS, FFmpeg-Integration, Performance-Vergleich
