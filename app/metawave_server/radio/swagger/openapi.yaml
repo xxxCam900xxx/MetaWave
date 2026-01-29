@@ -216,7 +216,7 @@ paths:
     post:
       tags:
         - Authentication
-      summary: Login mit Wave-Token
+      summary: Login mit Wave-Token (POST)
       description: Erhält ein temporäres JWT-Token nach Validierung des `wavetoken` im Body.
       requestBody:
         required: true
@@ -258,6 +258,69 @@ paths:
                   message:
                     type: string
                     example: Invalid wavetoken
+    get:
+      tags:
+        - Authentication
+      summary: Login via URL-Parameter (GET)
+      description: |
+        Ermöglicht die Authentifizierung direkt über einen URL-Parameter (wavetoken).
+        Dies erlaubt direkte Links zum Player ohne manuelle Eingabe des Tokens.
+        
+        **Beispiel:** `https://metawave.example.com/auth/login?wavetoken=MW202601-RADIO`
+        
+        **Client-Verwendung:** `https://metawave.example.com/?wavetoken=MW202601-RADIO`
+      parameters:
+        - in: query
+          name: wavetoken
+          required: true
+          schema:
+            type: string
+            example: MW202601-RADIO
+          description: Der aktuelle WaveToken für den aktuellen Monat
+      responses:
+        "200":
+          description: Erfolgreicher Login via URL-Parameter
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: Sucessfully Logged In
+                  token:
+                    type: string
+                    description: JWT-Token für die Authentifizierung
+                    example: eyJhbGciOiJI...
+        "401":
+          description: Ungültiges `wavetoken`
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Invalid wavetoken
+        "500":
+          description: Server-Fehler (z.B. WaveToken nicht konfiguriert)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 500
+                  message:
+                    type: string
+                    example: WaveToken not configured in database
 
   /auth/validate:
     post:

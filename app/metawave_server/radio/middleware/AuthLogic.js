@@ -4,9 +4,8 @@ import { getStoredTokenForCurrentMonth } from "./WaveTokenLogic.js";
 const SECRET = process.env.AUTH_SECRET || "changeme_must_set_AUTH_SECRET";
 const TOKEN_EXPIRY_SECONDS = parseInt(process.env.AUTH_TOKEN_EXPIRY, 10) || 30 * 60; // Alt: 30 minutes
 
-// POST /auth/login
 export async function login(req, res) {
-  const { wavetoken } = req.body || {};
+  const wavetoken = req.body?.wavetoken || req.query?.wavetoken;
 
   const expected = await getStoredTokenForCurrentMonth();
   if (!expected) return res.status(500).json({ status: 500, message: "WaveToken not configured in database" });

@@ -51,6 +51,47 @@ Dieser Endpunkt ist dazu da um den User auf dem Client einzuloggen und das mithi
 }
 ```
 
+### GET `/login?wavetoken=...`
+Dieser Endpunkt ermöglicht die Authentifizierung direkt über einen URL-Parameter. Dies erlaubt direkten Zugriff auf den Player ohne manuelle Token-Eingabe - ideal für Shortcuts, Bookmarks und eingebettete Links.
+
+**Query Parameter**
+```
+wavetoken - Der aktuelle WaveToken (z.B. MW202601-RADIO)
+```
+
+**Beispiel-URL**
+```
+GET /auth/login?wavetoken=MW202601-RADIO
+```
+
+**Response**
+```json
+{
+    "status": 200,
+    "message": "Sucessfully Logged In",
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**Use Cases**
+- **Desktop Shortcuts**: Browser-Lesezeichen mit eingebettetem Token
+- **Mobile Home-Screen**: Direkt-Zugriff ohne Login-Screen
+- **Interne Tools**: Integration in Dashboards, Wikis, etc.
+- **Kiosk-Mode**: Automatischer Login auf geteilten Geräten
+
+**Verwendung im Client**
+```
+https://metawave.timofej.ch/?wavetoken=MW202601-RADIO
+```
+
+Der Client erkennt den `?wavetoken=` oder `?token=` URL-Parameter automatisch, ruft `/auth/login?wavetoken=...` auf, authentifiziert den User und leitet direkt zum Player weiter.
+
+> [!WARNING]
+> **Sicherheitshinweis**: WaveTokens in URLs sind sichtbar in Browser-Verläufen, Server-Logs und bei geteilten Links. Nutze diese Funktion nur in vertrauenswürdigen Umgebungen. Für sensible Bereiche verwende den Standard-Login mit manueller Token-Eingabe.
+
+> [!INFO]
+> Detaillierte Dokumentation und interaktive Demo siehe [URL_LOGIN.md](/URL_LOGIN.md) und [URL_LOGIN_DEMO.html](/concept/URL_LOGIN_DEMO.html)
+
 ### POST `/validate`
 Der `/validate` Endpunkt ist dazu da um die Session zu verlängern und den Token zu erneuern für den [`/stream`](#get-stream) Endpunkt.
 
