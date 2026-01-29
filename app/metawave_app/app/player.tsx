@@ -519,35 +519,41 @@ export default function PlayerScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => router.push("/settings")}>
-          <Text style={styles.settingsText}>Settings</Text>
-        </TouchableOpacity>
+      {/* Header */}
+      <View style={[styles.headerRow, isDesktop && styles.headerRowDesktop]}>
         <Text style={styles.headerTitle}>MetaWave</Text>
-        <TouchableOpacity onPress={logout}>
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
+        <View style={styles.headerIcons}>
+          <TouchableOpacity style={styles.headerIcon} onPress={() => startStream()}>
+            <Text style={styles.headerIconText}>↻</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerIcon} onPress={() => router.push("/settings")}>
+            <Text style={styles.headerIconText}>⚙</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerIcon} onPress={logout}>
+            <Text style={styles.headerIconTextLogout}>⏻</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
         contentContainerStyle={[styles.centerContent, isDesktop && styles.centerContentDesktop]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.playerColumn}>
+        <View style={[styles.playerColumn, isDesktop && styles.playerColumnDesktop]}>
           {meta?.cover ? (
-            <Image source={{ uri: meta.cover }} style={styles.cover} />
+            <Image source={{ uri: meta.cover }} style={[styles.cover, isDesktop && styles.coverDesktop]} />
           ) : (
-            <View style={[styles.cover, styles.coverPlaceholder]}>
+            <View style={[styles.cover, isDesktop && styles.coverDesktop, styles.coverPlaceholder]}>
               <Text style={styles.coverPlaceholderText}>MetaWave</Text>
             </View>
           )}
 
           <View style={styles.metaBlock}>
-            <Text style={styles.songTitle}>{meta?.title || "Unbekannter Titel"}</Text>
+            <Text style={[styles.songTitle, isDesktop && styles.songTitleDesktop]}>{meta?.title || "Unbekannter Titel"}</Text>
             <Text style={styles.songAuthor}>{meta?.author || "Unbekannter Künstler"}</Text>
             {meta?.index !== undefined && meta?.total !== undefined && (
               <Text style={styles.queueText}>
-                Track {meta.index + 1} / {meta.total}
+                {meta.index + 1} / {meta.total}
               </Text>
             )}
           </View>
@@ -562,32 +568,30 @@ export default function PlayerScreen() {
               <View style={styles.progressRightBlock}>
                 <Text style={styles.progressLabel}>-{formatTime(remainingSeconds)}</Text>
                 {remainingSeconds > 0 && (
-                  <Text style={styles.progressEndLabel}>Endet um {formatEndClockTime(remainingSeconds)}</Text>
+                  <Text style={styles.progressEndLabel}>Endet um: {formatEndClockTime(remainingSeconds)}</Text>
                 )}
               </View>
             </View>
-            <View style={{ alignItems: "center", marginTop: 8 }}>
-              <Text style={styles.queueText}>Lautstärke: {volume}%</Text>
-            </View>
+            <Text style={styles.volumeText}>{volume}% Lautstärke</Text>
           </View>
 
           {error && <Text style={styles.errorText}>{error}</Text>}
 
           <View style={styles.controlsRowMain}>
-            <TouchableOpacity style={styles.secondaryButton} onPress={() => callControl("/stream/control/previous")}>
-              <Text style={styles.secondaryButtonText}>{"<<"}</Text>
+            <TouchableOpacity style={[styles.secondaryButton, isDesktop && styles.secondaryButtonDesktop]} onPress={() => callControl("/stream/control/previous")}>
+              <Text style={styles.secondaryButtonText}>⏮</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.playButton} onPress={togglePlayPause} disabled={playbackLoading}>
+            <TouchableOpacity style={[styles.playButton, isDesktop && styles.playButtonDesktop]} onPress={togglePlayPause} disabled={playbackLoading}>
               {playbackLoading ? (
-                <ActivityIndicator color="#000" />
+                <ActivityIndicator color="#fff" />
               ) : (
                 <Text style={styles.playButtonText}>{isPlaying ? "Pause" : "Play"}</Text>
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.secondaryButton} onPress={() => callControl("/stream/control/skip")}>
-              <Text style={styles.secondaryButtonText}>{">>"}</Text>
+            <TouchableOpacity style={[styles.secondaryButton, isDesktop && styles.secondaryButtonDesktop]} onPress={() => callControl("/stream/control/skip")}>
+              <Text style={styles.secondaryButtonText}>⏭</Text>
             </TouchableOpacity>
           </View>
 
@@ -623,7 +627,6 @@ export default function PlayerScreen() {
               {queue.map((item, arrayIndex) => {
                 const active = item.isPlaying;
                 const played = item.hasBeenPlayed && !active;
-                // Verwende item.index vom Server (korrekte Queue-Position)
                 const queueIndex = item.index;
                 return (
                   <TouchableOpacity
@@ -638,6 +641,7 @@ export default function PlayerScreen() {
                     }}
                     activeOpacity={0.7}
                   >
+                    <Text style={styles.queueDragHandleText}>⠿</Text>
                     {item.cover ? (
                       <Image source={{ uri: item.cover }} style={styles.queueThumbnail} />
                     ) : (
@@ -654,7 +658,7 @@ export default function PlayerScreen() {
                         {item.author || "Unbekannter Künstler"}
                       </Text>
                     </View>
-                    <Text style={styles.queueDuration}>{item.duration ? `${Math.round(item.duration / 60)} min` : ""}</Text>
+                    <Text style={styles.queueDuration}>{item.duration ? `${Math.round(item.duration / 60)}min` : ""}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -662,6 +666,20 @@ export default function PlayerScreen() {
           </ScrollView>
         </View>
       </ScrollView>
+      
+      {/* Footer */}
+      <View style={[styles.footer, isDesktop && styles.footerDesktop]}>
+        <View style={styles.footerLeft}>
+          <TouchableOpacity onPress={() => {/* TODO: Impressum */}}>
+            <Text style={styles.footerLink}>Impressum</Text>
+          </TouchableOpacity>
+          <Text style={styles.footerDivider}>/</Text>
+          <TouchableOpacity onPress={() => {/* TODO: Datenschutz */}}>
+            <Text style={styles.footerLink}>Datenschutz</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.footerVersion}>v1.0.0</Text>
+      </View>
     </SafeAreaView>
   );
 }

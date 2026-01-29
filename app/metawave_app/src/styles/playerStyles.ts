@@ -16,17 +16,41 @@ export const playerStyles = StyleSheet.create({
     marginTop: 12,
     color: colors.textPrimary,
   },
+  
+  // Header
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.backgroundDark,
+  },
+  headerRowDesktop: {
     paddingHorizontal: 24,
-    paddingTop: 24,
+    paddingVertical: 16,
   },
   headerTitle: {
     color: colors.textPrimary,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "600",
+  },
+  headerIcons: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  headerIcon: {
+    padding: 4,
+  },
+  headerIconText: {
+    color: colors.textSecondary,
+    fontSize: 18,
+  },
+  headerIconTextLogout: {
+    color: colors.error,
+    fontSize: 18,
   },
   settingsText: {
     color: colors.textPrimary,
@@ -36,10 +60,12 @@ export const playerStyles = StyleSheet.create({
     color: colors.error,
     fontSize: 14,
   },
+  
+  // Content
   centerContent: {
     flexGrow: 1,
     alignItems: "center",
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
     paddingVertical: 24,
   },
   centerContentDesktop: {
@@ -51,14 +77,25 @@ export const playerStyles = StyleSheet.create({
   },
   playerColumn: {
     width: "100%",
-    maxWidth: 520,
+    maxWidth: 400,
     alignItems: "center",
     marginBottom: 24,
   },
+  playerColumnDesktop: {
+    maxWidth: 480,
+  },
+  
+  // Cover
   cover: {
+    width: 200,
+    height: 200,
+    borderRadius: 12,
+    marginBottom: 20,
+  },
+  coverDesktop: {
     width: 260,
     height: 260,
-    borderRadius: 24,
+    borderRadius: 16,
     marginBottom: 24,
   },
   coverPlaceholder: {
@@ -71,15 +108,21 @@ export const playerStyles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "700",
   },
+  
+  // Meta Block
   metaBlock: {
     alignItems: "center",
-    marginBottom: 24,
+    marginBottom: 16,
+    paddingHorizontal: 16,
   },
   songTitle: {
     color: colors.textPrimary,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "700",
     textAlign: "center",
+  },
+  songTitleDesktop: {
+    fontSize: 22,
   },
   songAuthor: {
     color: colors.textSecondary,
@@ -92,13 +135,16 @@ export const playerStyles = StyleSheet.create({
     marginTop: 4,
     fontSize: 12,
   },
+  
+  // Progress Bar
   progressBarWrapper: {
     width: "100%",
-    marginBottom: 24,
+    marginBottom: 20,
+    paddingHorizontal: 8,
   },
   progressBarBg: {
     flexDirection: "row",
-    height: 6,
+    height: 4,
     borderRadius: 999,
     backgroundColor: colors.border,
     overflow: "hidden",
@@ -123,24 +169,38 @@ export const playerStyles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
+  volumeText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 8,
+  },
   errorText: {
     color: colors.error,
     marginBottom: 12,
+    textAlign: "center",
   },
+  
+  // Controls
   controlsRowMain: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    width: "70%",
-    marginBottom: 16,
+    justifyContent: "center",
+    gap: 24,
+    marginBottom: 20,
   },
   playButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
+  },
+  playButtonDesktop: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
   },
   playButtonText: {
     color: colors.textPrimary,
@@ -148,30 +208,41 @@ export const playerStyles = StyleSheet.create({
     fontSize: 16,
   },
   secondaryButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: colors.backgroundCard,
     alignItems: "center",
     justifyContent: "center",
   },
+  secondaryButtonDesktop: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
   secondaryButtonText: {
     color: colors.textPrimary,
     fontSize: 18,
+    fontWeight: "600",
   },
   controlsRowSecondary: {
     flexDirection: "row",
     gap: 12,
   },
   chip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 999,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
     backgroundColor: colors.backgroundCard,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   chipText: {
     color: colors.textPrimary,
+    fontSize: 14,
   },
+  
+  // Queue
   queueContainer: {
     marginTop: 24,
     width: "100%",
@@ -181,14 +252,16 @@ export const playerStyles = StyleSheet.create({
     marginTop: 0,
     marginLeft: 32,
     flex: 1,
-    maxWidth: 520,
+    maxWidth: 400,
     alignSelf: "stretch",
   },
   queueHeader: {
-    color: colors.textPrimary,
-    fontSize: 16,
+    color: colors.textSecondary,
+    fontSize: 12,
     fontWeight: "600",
-    marginBottom: 8,
+    marginBottom: 12,
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
   queueListContent: {
     flexGrow: 0,
@@ -196,12 +269,11 @@ export const playerStyles = StyleSheet.create({
   queueItem: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 12,
-    borderRadius: 10,
+    borderRadius: 8,
     backgroundColor: colors.backgroundDark,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   queueItemActive: {
     backgroundColor: colors.backgroundCard,
@@ -212,10 +284,10 @@ export const playerStyles = StyleSheet.create({
     opacity: 0.4,
   },
   queueThumbnail: {
-    width: 42,
-    height: 42,
+    width: 44,
+    height: 44,
     borderRadius: 6,
-    marginRight: 10,
+    marginRight: 12,
     backgroundColor: colors.backgroundCard,
   },
   queueThumbnailPlaceholder: {
@@ -223,9 +295,8 @@ export const playerStyles = StyleSheet.create({
     justifyContent: "center",
   },
   queueThumbnailText: {
-    color: colors.textPrimary,
+    color: colors.textSecondary,
     fontSize: 18,
-    fontWeight: "600",
   },
   queueTexts: {
     flex: 1,
@@ -237,7 +308,7 @@ export const playerStyles = StyleSheet.create({
     fontWeight: "500",
   },
   queueTitleActive: {
-    color: colors.primary,
+    color: colors.primaryLight,
   },
   queueAuthor: {
     color: colors.textSecondary,
@@ -246,6 +317,45 @@ export const playerStyles = StyleSheet.create({
   },
   queueDuration: {
     color: colors.textSecondary,
+    fontSize: 12,
+  },
+  queueDragHandle: {
+    marginRight: 8,
+    padding: 4,
+  },
+  queueDragHandleText: {
+    color: colors.textMuted,
+    fontSize: 14,
+  },
+  
+  // Footer
+  footer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.backgroundDark,
+  },
+  footerDesktop: {
+    paddingHorizontal: 24,
+  },
+  footerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  footerLink: {
+    color: colors.textMuted,
+    fontSize: 12,
+  },
+  footerDivider: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginHorizontal: 8,
+  },
+  footerVersion: {
+    color: colors.textMuted,
     fontSize: 12,
   },
 });
