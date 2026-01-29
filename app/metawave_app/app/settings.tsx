@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Switch, Text, TouchableOpacity, View, ScrollView } from "react-native";
+import Slider from "@react-native-community/slider";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
@@ -12,6 +13,7 @@ export default function SettingsScreen() {
   const [saving, setSaving] = useState(false);
   const [monotoneEnabled, setMonotoneEnabled] = useState(false);
   const [monotoneReduceLoud, setMonotoneReduceLoud] = useState(false);
+  const [minArtistDistance, setMinArtistDistance] = useState(5);
   const tokenRef = React.useRef<string | null>(null);
 
   useEffect(() => {
@@ -52,6 +54,9 @@ export default function SettingsScreen() {
       }
       if (typeof json?.monotoneReduceLoud === "boolean") {
         setMonotoneReduceLoud(json.monotoneReduceLoud);
+      }
+      if (typeof json?.minArtistDistance === "number") {
+        setMinArtistDistance(json.minArtistDistance);
       }
     } catch (err) {
       // Ignore loading errors
@@ -124,6 +129,43 @@ export default function SettingsScreen() {
     saveReduceLoudSetting(value);
   };
 
+  const saveArtistDistance = async (value: number) => {
+    if (!tokenRef.current) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/stream/settings/artist-distance`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tokenRef.current}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ distance: value }),
+      });
+
+      if (!res.ok) {
+        Alert.alert("Fehler", "Einstellung konnte nicht gespeichert werden.");
+        return;
+      }
+
+      setMinArtistDistance(value);
+    } catch (err) {
+      Alert.alert("Fehler", "Verbindung zum Server fehlgeschlagen.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleArtistDistanceChange = (value: number) => {
+    const rounded = Math.round(value);
+    setMinArtistDistance(rounded);
+  };
+
+  const handleArtistDistanceComplete = (value: number) => {
+    const rounded = Math.round(value);
+    saveArtistDistance(rounded);
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.centered}>
@@ -168,7 +210,7 @@ export default function SettingsScreen() {
             <View style={styles.settingInfo}>
               <Text style={styles.settingLabel}>Laute Songs reduzieren</Text>
               <Text style={styles.settingDescription}>
-                Reduziert auch laute Songs auf -16 LUFS (benötigt EBU R128)
+                Reduziert auch laute Songs auf -14 LUFS (benötigt EBU R128)
               </Text>
             </View>
             <Switch
@@ -182,14 +224,62 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Playlist Einstellungen</Text>
+          
+          <View style={styles.settingCard}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Mindest Künstler-Abstand</Text>
+              <Text style={styles.settingDescription}>
+                Verhindert, dass derselbe Künstler zu oft hintereinander spielt
+              </Text>
+            </View>
+            
+            <View style={styles.sliderContainer}>
+              <View style={styles.sliderHeader}>
+                <Text style={styles.sliderValue}>
+                  {minArtistDistance === 0 ? "Aus" : `${minArtistDistance} Songs`}
+                </Text>
+              </View>
+              <Slider
+                style={styles.slider}
+                minimumValue={0}
+                maximumValue={15}
+                step={1}
+                value={minArtistDistance}
+                onValueChange={handleArtistDistanceChange}
+                onSlidingComplete={handleArtistDistanceComplete}
+                disabled={saving}
+                minimumTrackTintColor="#2196F3"
+                maximumTrackTintColor="#3a3a3a"
+                thumbTintColor="#ffffff"
+              />
+              <View style={styles.sliderLabels}>
+                <Text style={styles.sliderLabelText}>0</Text>
+                <Text style={styles.sliderLabelText}>15</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
         <View style={styles.infoBox}>
           <Text style={styles.infoTitle}>ℹ️ Über EBU R128 Normalisierung</Text>
           <Text style={styles.infoText}>
             Diese Funktion nutzt den professionellen Broadcasting-Standard EBU R128 (LUFS - Loudness Units relative to Full Scale).{"\n\n"}
-            Songs werden auf -16 LUFS normalisiert, wie bei Spotify, YouTube und echten Radio-Services. LUFS berücksichtigt die menschliche Hörwahrnehmung und misst perzeptuelle Lautstärke.{"\n\n"}
+            Songs werden auf -14 LUFS normalisiert, wie bei Spotify, YouTube und echten Radio-Services. LUFS berücksichtigt die menschliche Hörwahrnehmung und misst perzeptuelle Lautstärke.{"\n\n"}
             <Text style={{ fontWeight: 'bold' }}>Standard-Modus:</Text> Nur leise Songs werden lauter.{"\n"}
             <Text style={{ fontWeight: 'bold' }}>Erweiterter Modus:</Text> Alle Songs auf gleiche Lautstärke.{"\n\n"}
             Ergebnis: Professionelle Broadcast-Qualität mit True Peak Limiting (kein Clipping).
+          </Text>
+        </View>
+
+        <View style={[styles.infoBox, { borderLeftColor: "#2196F3" }]}>
+          <Text style={styles.infoTitle}>ℹ️ Über Künstler-Abstand</Text>
+          <Text style={styles.infoText}>
+            Der Smart Shuffle Algorithmus sorgt dafür, dass derselbe Künstler nicht zu häufig hintereinander gespielt wird.{"\n\n"}
+            <Text style={{ fontWeight: 'bold' }}>Beispiel (5 Songs):</Text> Nach einem Song von Artist A werden mindestens 5 andere Songs gespielt, bevor wieder ein Song von A kommt.{"\n\n"}
+            <Text style={{ fontWeight: 'bold' }}>Künstler-Erkennung:</Text> Der Algorithmus erkennt Variationen wie "Artist feat. Someone" als denselben Künstler.{"\n\n"}
+            <Text style={{ fontWeight: 'bold' }}>Wert 0:</Text> Funktion ist deaktiviert, normaler Shuffle wird verwendet.
           </Text>
         </View>
       </ScrollView>

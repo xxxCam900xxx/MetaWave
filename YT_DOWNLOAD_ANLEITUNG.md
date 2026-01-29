@@ -552,7 +552,7 @@ songs = songs_without_lufs[CHUNK_START-1:CHUNK_END]
 
 # Analysiert mit FFmpeg
 for song in songs:
-    ffmpeg -i song.mp3 -af loudnorm=I=-16:TP=-1.5 -f null -
+    ffmpeg -i song.mp3 -af loudnorm=I=-14:TP=-1.5 -f null -
     # Extrahiert LUFS-Werte aus Ausgabe
     lufs_data = parse_ffmpeg_output()
     
@@ -597,17 +597,17 @@ Song 2 (Klassik):   🔊             (-20 LUFS) ← SEHR LEISE
 Song 3 (Pop):       🔊🔊🔊🔊         (-14 LUFS) ← MITTEL
 ```
 
-Mit LUFS-Normalisierung auf -16 LUFS:
+Mit LUFS-Normalisierung auf -14 LUFS:
 
 ```
-Song 1 (Rock):      🔊🔊🔊🔊(-16 LUFS) ← REDUZIERT
-Song 2 (Klassik):   🔊🔊🔊🔊(-16 LUFS) ← ERHÖHT
-Song 3 (Pop):       🔊🔊🔊🔊(-16 LUFS) ← LEICHT ERHÖHT
+Song 1 (Rock):      🔊🔊🔊🔊(-14 LUFS) ← REDUZIERT
+Song 2 (Klassik):   🔊🔊🔊🔊(-14 LUFS) ← ERHÖHT
+Song 3 (Pop):       🔊🔊🔊🔊(-14 LUFS) ← LEICHT ERHÖHT
 ```
 
 **MetaWave-Einstellungen:**
 
-- **Target**: -16 LUFS (Spotify/YouTube/Apple Music Standard)
+- **Target**: -14 LUFS (Spotify/YouTube/Apple Music Standard)
 - **True Peak**: -1.5 dBTP (verhindert Clipping)
 - **Loudness Range**: 11 LU
 

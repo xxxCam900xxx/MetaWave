@@ -22,6 +22,7 @@ Hier werden alle Endpunkte mit ihrem Zweck sowie allen möglichen `Headern`, `Pa
     - [GET `/stream/settings`](#get-streamsettings)
     - [POST `/stream/settings/monotone`](#post-streamsettingsmonotone)
     - [POST `/stream/settings/monotone/reduce-loud`](#post-streamsettingsmonotonereduce-loud)
+    - [POST `/stream/settings/artist-distance`](#post-streamsettingsartist-distance)
   - [Notification Service](#notification-service)
     - [POST `/notification/signal/invite`](#post-notificationsignalinvite)
     - [POST `/notification/signal/leave`](#post-notificationsignalleave)
@@ -198,19 +199,20 @@ Bei Änderung interpoliert der Server die Lautstärke sanft (ca. 600ms), sodass 
 > Die Lautstärkeänderung wird serverseitig auf PCM-Ebene angewendet und dann wieder zu MP3 enkodiert. Das ermöglicht ein glattes Fading, erhöht aber CPU-/I/O-Last auf dem Server.
 
 ### GET `/stream/settings`
-Gibt die aktuellen Server-Einstellungen für Audio-Verarbeitung zurück, insbesondere den Status des EBU R128 Loudness Normalizers.
+Gibt die aktuellen Server-Einstellungen für Audio-Verarbeitung zurück, insbesondere den Status des EBU R128 Loudness Normalizers und die Mindestdistanz für gleiche Künstler.
 
 **Response**
 ```json
 {
     "status": 200,
     "monotoneEnabled": false,
-    "monotoneReduceLoud": false
+    "monotoneReduceLoud": false,
+    "minArtistDistance": 5
 }
 ```
 
 ### POST `/stream/settings/monotone`
-Aktiviert oder deaktiviert die EBU R128 Loudness Normalisierung. Im Standard-Modus werden nur zu leise Songs auf Broadcast-Standard (-16 LUFS) angehoben.
+Aktiviert oder deaktiviert die EBU R128 Loudness Normalisierung. Im Standard-Modus werden nur zu leise Songs auf Broadcast-Standard (-14 LUFS) angehoben.
 
 **Body**
 ```json
@@ -229,10 +231,10 @@ Aktiviert oder deaktiviert die EBU R128 Loudness Normalisierung. Im Standard-Mod
 ```
 
 > [!INFO]
-> Der Monotone Equalizer verwendet **EBU R128 / LUFS** (Loudness Units relative to Full Scale), den europäischen Broadcasting-Standard. Songs werden auf **-16 LUFS** normalisiert (Spotify/YouTube Standard) mit **True Peak Limiting** bei -1.5 dB. LUFS-Werte werden einmalig beim Download analysiert und in metadata.json gespeichert. Details siehe [MONOTONE_EQUALIZER.md](MONOTONE_EQUALIZER.md).
+> Der Monotone Equalizer verwendet **EBU R128 / LUFS** (Loudness Units relative to Full Scale), den europäischen Broadcasting-Standard. Songs werden auf **-14 LUFS** normalisiert (Spotify/YouTube Standard) mit **True Peak Limiting** bei -1.5 dB. LUFS-Werte werden einmalig beim Download analysiert und in metadata.json gespeichert. Details siehe [MONOTONE_EQUALIZER.md](MONOTONE_EQUALIZER.md).
 
 ### POST `/stream/settings/monotone/reduce-loud`
-Aktiviert oder deaktiviert die zusätzliche Reduktion lauter Songs. Benötigt einen aktiven Monotone Equalizer. Laute Songs (> -16 LUFS) werden präzise auf -16 LUFS reduziert mit True Peak Limiting.
+Aktiviert oder deaktiviert die zusätzliche Reduktion lauter Songs. Benötigt einen aktiven Monotone Equalizer. Laute Songs (> -14 LUFS) werden präzise auf -14 LUFS reduziert mit True Peak Limiting.
 
 **Body**
 ```json
@@ -251,7 +253,29 @@ Aktiviert oder deaktiviert die zusätzliche Reduktion lauter Songs. Benötigt ei
 ```
 
 > [!INFO]
-> Im erweiterten Modus werden alle Songs auf exakt -16 LUFS normalisiert. FFmpeg's loudnorm Filter verwendet die voranalysierten LUFS-Werte für präzise Second-Pass Normalisierung. **Standard-Modus** (reduce-loud=false): Nur leise Songs werden geboostet, laute bleiben original. **Erweiterter Modus** (reduce-loud=true): Vollständige Normalisierung mit True Peak Limiting.
+> Im erweiterten Modus werden alle Songs auf exakt -14 LUFS normalisiert. FFmpeg's loudnorm Filter verwendet die voranalysierten LUFS-Werte für präzise Second-Pass Normalisierung. **Standard-Modus** (reduce-loud=false): Nur leise Songs werden geboostet, laute bleiben original. **Erweiterter Modus** (reduce-loud=true): Vollständige Normalisierung mit True Peak Limiting.
+
+### POST `/stream/settings/artist-distance`
+Konfiguriert die minimale Anzahl von Songs zwischen Auftritten desselben Künstlers in der Queue. Dies verhindert, dass derselbe Künstler zu häufig hintereinander gespielt wird und erhöht die Vielfalt beim Shuffle.
+
+**Body**
+```json
+{
+    "distance": 5
+}
+```
+
+**Response**
+```json
+{
+    "status": 200,
+    "message": "Minimum artist distance set to 5 songs",
+    "minArtistDistance": 5
+}
+```
+
+> [!INFO]
+> Der **Smart Shuffle Algorithmus** respektiert die Artist Distance beim Mischen der Queue. Nach einem Song von Künstler A werden mindestens X andere Songs gespielt, bevor wieder ein Song von A kommt. **Künstler-Normalisierung**: Der Algorithmus erkennt Variationen wie "Artist feat. Someone" oder "Artist & Other" und behandelt sie als denselben Künstler. **Edge Cases**: Bei wenigen verschiedenen Künstlern platziert der Algorithmus Songs so weit auseinander wie mathematisch möglich. Beim Wert `0` ist die Funktion deaktiviert und es wird ein Standard Fisher-Yates Shuffle verwendet.
 
 ## Notification Service
 

@@ -152,7 +152,7 @@ Dabei gilt:
 **Pass 1: Pre-Analysis (einmalig beim Download)**
 ```bash
 ffmpeg -i song.mp3 \
-  -af "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json" \
+  -af "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json" \
   -f null -
 ```
 
@@ -180,7 +180,7 @@ Single-Pass FFmpeg mit Audio Filter Chain:
 ```javascript
 const ffmpegArgs = [
   "-re", "-i", filePath,
-  "-af", `loudnorm=I=-16:TP=-1.5:LRA=11:` +
+  "-af", `loudnorm=I=-14:TP=-1.5:LRA=11:` +
          `measured_I=${song.lufs.input_i}:` +
          `measured_TP=${song.lufs.input_tp}:` +
          `measured_LRA=${song.lufs.input_lra}:` +
@@ -196,7 +196,7 @@ const ffmpegArgs = [
 **Normalisierungs-Logik:**
 ```javascript
 if (monotoneEnabled && song.lufs) {
-  const targetLUFS = -16.0;
+  const targetLUFS = -14.0;
   const currentLUFS = song.lufs.input_i;
   
   // Standard-Modus: Nur leise Songs
@@ -208,7 +208,7 @@ if (monotoneEnabled && song.lufs) {
 
 ### Parameter
 
-- **Target Integrated Loudness:** -16 LUFS (Spotify/YouTube Standard)
+- **Target Integrated Loudness:** -14 LUFS (Spotify/YouTube Standard)
 - **True Peak Limit:** -1.5 dBTP (verhindert Inter-Sample-Peaks)
 - **Loudness Range:** 11 LU (erhält Dynamik)
 - **Linear Mode:** true (konstanter Gain über Song)
@@ -272,7 +272,7 @@ Die Migration basiert auf konkreten technischen und qualitativen Verbesserungen:
 - Schwer zu kalibrieren über verschiedene Genres
 
 **Lösung mit LUFS:** Industriestandard
-- -16 LUFS ist etablierter Standard (Spotify, YouTube, Apple Music)
+- -14 LUFS ist etablierter Standard (Spotify, YouTube, Apple Music)
 - Songs klingen auf allen Plattformen konsistent
 - Wissenschaftlich validiert und aktiv weiterentwickelt
 
@@ -331,8 +331,8 @@ Die Migration liefert professionelle Broadcast-Qualität bei gleichzeitig deutli
 
 Der Monotone Equalizer bietet zwei Betriebsmodi:
 
-1. **Standard-Modus (One-Way):** Nur Verstärkung leiser Songs (< -16 LUFS)
-2. **Erweiterter Modus (Bidirektional):** Verstärkung leiser Songs + Reduktion lauter Songs (> -16 LUFS)
+1. **Standard-Modus (One-Way):** Nur Verstärkung leiser Songs (< -14 LUFS)
+2. **Erweiterter Modus (Bidirektional):** Verstärkung leiser Songs + Reduktion lauter Songs (> -14 LUFS)
 
 ### Technisches Konzept
 
@@ -343,7 +343,7 @@ Die aktuelle Implementierung nutzt FFmpeg's **loudnorm Filter** mit pre-analysie
 ```javascript
 // Standard-Modus: Nur leise Songs boosten
 if (monotoneEnabled && song.lufs) {
-  const targetLUFS = -16.0;
+  const targetLUFS = -14.0;
   const currentLUFS = song.lufs.input_i;
   
   // Entscheide ob normalisiert werden soll
@@ -351,7 +351,7 @@ if (monotoneEnabled && song.lufs) {
   
   if (shouldNormalize) {
     // FFmpeg loudnorm Filter mit Second-Pass Werten
-    const filter = `loudnorm=I=-16:TP=-1.5:LRA=11:` +
+    const filter = `loudnorm=I=-14:TP=-1.5:LRA=11:` +
       `measured_I=${song.lufs.input_i}:` +
       `measured_TP=${song.lufs.input_tp}:` +
       `measured_LRA=${song.lufs.input_lra}:` +

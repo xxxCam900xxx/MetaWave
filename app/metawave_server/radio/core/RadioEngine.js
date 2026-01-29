@@ -24,6 +24,8 @@ export class RadioEngine extends EventEmitter {
     this.currentVolumeMultiplier = this.volumePercent / 100;
     this.monotoneEnabled = false;
     this.monotoneReduceLoud = false;  // Toggle: Auch laute Songs reduzieren?
+    this.minArtistDistance = 5; // Minimum number of songs between same artist
+    this.lastGainWasZero = false; // Track if last song had zero gain (for logging)
     this.loadQueue();
   }
 
@@ -50,7 +52,8 @@ export class RadioEngine extends EventEmitter {
           title: s.title || s.filename,
           author: s.author || "",
           cover: s.cover || "",
-          duration: s.duration || 0
+          duration: s.duration || 0,
+          lufs: s.lufs || null  // LUFS Daten für Normalisierung
         }));
     } catch (err) {
       console.error("Fehler beim Laden der Metadaten:", err);
@@ -58,6 +61,10 @@ export class RadioEngine extends EventEmitter {
     }
 
     console.log("Queue loaded:", this.queue.map(s => s.title));
+    
+    // Log LUFS status
+    const songsWithLufs = this.queue.filter(s => s.lufs && s.lufs.input_i).length;
+    console.log(`LUFS Data: ${songsWithLufs}/${this.queue.length} songs have LUFS information`);
     
     if (this.queue.length > 0) {
       this.shuffleQueue();
@@ -153,7 +160,7 @@ export class RadioEngine extends EventEmitter {
       const vol = this.currentVolumeMultiplier ?? (this.volumePercent / 100);
       let monoMult = 1;
       if (this.monotoneEnabled && song.lufs) {
-        const targetLUFS = -16.0;
+        const targetLUFS = -14.0;
         const currentLUFS = song.lufs.input_i;
         let gainDb = targetLUFS - currentLUFS; // positive => boost, negative => reduce
         if (gainDb < 0 && !this.monotoneReduceLoud) gainDb = 0;
@@ -161,6 +168,22 @@ export class RadioEngine extends EventEmitter {
       }
       return vol * monoMult;
     };
+
+    // LUFS Status einmal pro Song loggen
+    if (this.monotoneEnabled && song.lufs) {
+      const targetLUFS = -14.0;
+      const currentLUFS = song.lufs.input_i;
+      let gainDb = targetLUFS - currentLUFS;
+      if (gainDb < 0 && !this.monotoneReduceLoud) gainDb = 0;
+      
+      if (gainDb !== 0) {
+        console.log(`[LUFS] ${song.title}: ${currentLUFS.toFixed(1)} LUFS → Gain: ${gainDb > 0 ? '+' : ''}${gainDb.toFixed(1)} dB`);
+      } else {
+        console.log(`[LUFS] ${song.title}: ${currentLUFS.toFixed(1)} LUFS → Already at target, no gain needed`);
+      }
+    } else if (this.monotoneEnabled && !song.lufs) {
+      console.warn(`[LUFS] ${song.title}: No LUFS data - normalization skipped`);
+    }
 
     const gainTransform = new GainTransform(getMultiplier);
 
@@ -207,8 +230,9 @@ export class RadioEngine extends EventEmitter {
       }
     };
 
+    // Only attach exit handler to decoder to prevent double-triggering
+    // Encoder will be cleaned up when decoder exits
     decoder.on("exit", onExit);
-    encoder.on("exit", onExit);
     decoder.stderr.on("data", handleErr);
     encoder.stderr.on("data", handleErr);
   }
@@ -231,9 +255,15 @@ export class RadioEngine extends EventEmitter {
   }
 
   shuffleQueue() {
-    for (let i = this.queue.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [this.queue[i], this.queue[j]] = [this.queue[j], this.queue[i]];
+    if (this.minArtistDistance === 0) {
+      // Standard Fisher-Yates shuffle if artist distance is disabled
+      for (let i = this.queue.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [this.queue[i], this.queue[j]] = [this.queue[j], this.queue[i]];
+      }
+    } else {
+      // Smart shuffle with artist distance
+      this.queue = this.smartShuffle(this.queue);
     }
     this.broadcastQueueUpdate();
   }
@@ -255,7 +285,10 @@ export class RadioEngine extends EventEmitter {
   skip() {
     if (this.currentDecoder) {
       console.log("Skip requested");
-      try { if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); } catch (e) {}
+      try { 
+        if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); 
+        if (this.currentEncoder) this.currentEncoder.kill("SIGKILL");
+      } catch (e) {}
     }
   }
 
@@ -268,7 +301,10 @@ export class RadioEngine extends EventEmitter {
 
     if (this.currentDecoder) {
       this.currentIndex = targetIndex - 1;
-      try { if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); } catch (e) {}
+      try { 
+        if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); 
+        if (this.currentEncoder) this.currentEncoder.kill("SIGKILL");
+      } catch (e) {}
     } else {
       this.currentIndex = targetIndex;
       this.playNext();
@@ -284,8 +320,6 @@ export class RadioEngine extends EventEmitter {
 
     if (idx === this.currentIndex) return;
 
-    let targetIndex = idx;
-
     // Wenn nach vorne gesprungen wird: Songs dazwischen wieder in die Rest-Queue packen
     // und neu shuffeln, damit sie später wieder vorkommen.
     if (idx > this.currentIndex) {
@@ -296,15 +330,44 @@ export class RadioEngine extends EventEmitter {
 
       const leftovers = [...skipped, ...remaining];
 
-      // Fisher-Yates Shuffle für die übrigen Songs
-      for (let i = leftovers.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [leftovers[i], leftovers[j]] = [leftovers[j], leftovers[i]];
+      // Smart shuffle for the remaining songs respecting artist distance
+      let shuffledLeftovers;
+      if (this.minArtistDistance === 0) {
+        // Standard Fisher-Yates Shuffle if artist distance is disabled
+        shuffledLeftovers = [...leftovers];
+        for (let i = shuffledLeftovers.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffledLeftovers[i], shuffledLeftovers[j]] = [shuffledLeftovers[j], shuffledLeftovers[i]];
+        }
+      } else {
+        // Use smart shuffle considering the target song as the last played
+        shuffledLeftovers = this.smartShuffle(leftovers, target);
       }
 
-      this.queue = [...played, target, ...leftovers];
-      targetIndex = played.length; // Index des gewählten Songs in der neuen Queue
-    } else if (idx < this.currentIndex) {
+      this.queue = [...played, target, ...shuffledLeftovers];
+      
+      // Der gewünschte Song ist jetzt an Position played.length
+      const newIndex = played.length;
+      
+      if (this.currentDecoder) {
+        // Setze auf newIndex - 1, damit nach dem ++ im exit handler newIndex erreicht wird
+        this.currentIndex = newIndex - 1;
+        try { 
+          if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); 
+          if (this.currentEncoder) this.currentEncoder.kill("SIGKILL");
+        } catch (e) {}
+      } else {
+        // Kein laufender Song, direkt abspielen
+        this.currentIndex = newIndex;
+        this.playNext();
+      }
+      
+      this.broadcastQueueUpdate();
+      return;
+    }
+    
+    // Wenn zurück gesprungen wird
+    if (idx < this.currentIndex) {
       const oldCurrent = this.currentIndex;
 
       for (let i = 0; i < oldCurrent; i++) {
@@ -322,7 +385,10 @@ export class RadioEngine extends EventEmitter {
 
       if (this.currentDecoder) {
         this.currentIndex = newCurrent;
-        try { if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); } catch (e) {}
+        try { 
+          if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); 
+          if (this.currentEncoder) this.currentEncoder.kill("SIGKILL");
+        } catch (e) {}
       } else {
         this.currentIndex = insertPos;
         this.playNext();
@@ -331,18 +397,6 @@ export class RadioEngine extends EventEmitter {
       this.broadcastQueueUpdate();
       return;
     }
-
-    if (this.currentDecoder) {
-      // currentIndex so setzen, dass nach dem automatischen ++ im exit-Handler
-      // genau der gewünschte Track gespielt wird.
-      this.currentIndex = targetIndex - 1;
-      try { if (this.currentDecoder) this.currentDecoder.kill("SIGKILL"); } catch (e) {}
-    } else {
-      this.currentIndex = targetIndex;
-      this.playNext();
-    }
-
-    this.broadcastQueueUpdate();
   }
 
   getMeta() {
@@ -380,9 +434,18 @@ export class RadioEngine extends EventEmitter {
     const played = this.queue.slice(0, this.currentIndex + 1);
     const remaining = this.queue.slice(this.currentIndex + 1);
 
-    for (let i = remaining.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
+    if (this.minArtistDistance === 0) {
+      // Standard Fisher-Yates shuffle if artist distance is disabled
+      for (let i = remaining.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
+      }
+    } else {
+      // Smart shuffle with artist distance, considering last played song
+      const shuffled = this.smartShuffle(remaining, played[played.length - 1]);
+      this.queue = [...played, ...shuffled];
+      this.broadcastQueueUpdate();
+      return;
     }
 
     this.queue = [...played, ...remaining];
@@ -404,6 +467,12 @@ export class RadioEngine extends EventEmitter {
     this.monotoneEnabled = Boolean(enabled);
     console.log(`EBU R128 Loudness Normalization ${this.monotoneEnabled ? 'enabled' : 'disabled'}`);
     
+    // Log LUFS availability when enabling
+    if (this.monotoneEnabled) {
+      const songsWithLufs = this.queue.filter(s => s.lufs && s.lufs.input_i).length;
+      console.log(`LUFS Data: ${songsWithLufs}/${this.queue.length} songs have LUFS information`);
+    }
+    
     this.broadcastSettingsUpdate();
     // Live gain transform reads `this.monotoneEnabled` and `this.monotoneReduceLoud` dynamically.
     // No restart/killing of ffmpeg necessary.
@@ -421,7 +490,8 @@ export class RadioEngine extends EventEmitter {
   getSettings() {
     return {
       monotoneEnabled: this.monotoneEnabled,
-      monotoneReduceLoud: this.monotoneReduceLoud
+      monotoneReduceLoud: this.monotoneReduceLoud,
+      minArtistDistance: this.minArtistDistance
     };
   }
 
@@ -434,6 +504,211 @@ export class RadioEngine extends EventEmitter {
     for (const ws of this.wsClients) {
       if (ws.readyState === WebSocket.OPEN) ws.send(payload);
     }
+  }
+
+  /**
+   * Smart shuffle algorithm that respects minimum artist distance
+   * Uses a greedy placement strategy for optimal artist spacing
+   * @param {Array} songs - Songs to shuffle
+   * @param {Object} lastPlayedSong - Optional: Last song that was played (to consider its artist)
+   * @returns {Array} Shuffled songs respecting artist distance
+   */
+  smartShuffle(songs, lastPlayedSong = null) {
+    if (!songs || songs.length === 0) return [];
+    if (songs.length === 1) return songs;
+
+    // First, do a standard shuffle
+    const shuffled = [...songs];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
+    // Now apply greedy artist distance optimization
+    const result = [];
+    const remaining = [...shuffled];
+
+    // If we have a last played song, consider it for the first placement
+    const context = lastPlayedSong ? [lastPlayedSong] : [];
+
+    while (remaining.length > 0) {
+      let placed = false;
+
+      // Try to find a song that respects artist distance
+      for (let i = 0; i < remaining.length; i++) {
+        const candidate = remaining[i];
+        const testQueue = [...context, ...result];
+        
+        if (this.canPlayArtistAt(testQueue, testQueue.length, candidate)) {
+          result.push(candidate);
+          remaining.splice(i, 1);
+          placed = true;
+          break;
+        }
+      }
+
+      // If no song can be placed respecting the distance, find the best position
+      if (!placed) {
+        // Calculate artist distance score for each remaining song
+        // Lower score = better (artist appears less recently)
+        let bestIndex = 0;
+        let bestScore = -1; // Changed to -1 to prefer maximum distance
+
+        for (let i = 0; i < remaining.length; i++) {
+          const candidate = remaining[i];
+          
+          // Find distance to last occurrence of this artist
+          let lastOccurrence = -1;
+          const testQueue = [...context, ...result];
+          for (let j = testQueue.length - 1; j >= 0; j--) {
+            if (this.isSameArtist(testQueue[j], candidate)) {
+              lastOccurrence = j;
+              break;
+            }
+          }
+
+          const distance = lastOccurrence === -1 ? Infinity : testQueue.length - lastOccurrence;
+          
+          // Prefer songs with greater distance from last occurrence
+          if (distance > bestScore) {
+            bestScore = distance;
+            bestIndex = i;
+          } else if (distance === bestScore && Math.random() > 0.5) {
+            bestIndex = i;
+          }
+        }
+
+        // Place the best candidate
+        result.push(remaining[bestIndex]);
+        remaining.splice(bestIndex, 1);
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Normalize artist name for comparison
+   * Handles features, collaborations, etc.
+   */
+  normalizeArtistName(artist) {
+    if (!artist) return "";
+    return artist
+      .toLowerCase()
+      .replace(/\s*[\(\[]?(feat|ft|featuring|with)[.\s]*[^\)\]]*[\)\]]?/gi, "")
+      .replace(/\s*&\s*/g, " ")
+      .trim();
+  }
+
+  /**
+   * Extract artist identifiers from a song (both from author field and title)
+   * Returns array of normalized artist names
+   */
+  extractArtistIdentifiers(song) {
+    const identifiers = [];
+    
+    // Add author field if available
+    if (song.author) {
+      const normalized = this.normalizeArtistName(song.author);
+      if (normalized) identifiers.push(normalized);
+    }
+    
+    // Try to extract artist from title
+    // Common patterns: "Artist - Song", "[Artist] Song", "Artist: Song"
+    if (song.title) {
+      const title = song.title;
+      
+      // Pattern: "Artist - Song"
+      const dashMatch = title.match(/^([^-]+)\s*-\s*.+$/);
+      if (dashMatch) {
+        const normalized = this.normalizeArtistName(dashMatch[1]);
+        if (normalized && !identifiers.includes(normalized)) {
+          identifiers.push(normalized);
+        }
+      }
+      
+      // Pattern: "[Artist] Song" or "(Artist) Song"
+      const bracketMatch = title.match(/^[\[\(]([^\]\)]+)[\]\)]\s*.+$/);
+      if (bracketMatch) {
+        const normalized = this.normalizeArtistName(bracketMatch[1]);
+        if (normalized && !identifiers.includes(normalized)) {
+          identifiers.push(normalized);
+        }
+      }
+      
+      // Pattern: "Artist: Song" or "Artist : Song"
+      const colonMatch = title.match(/^([^:]+)\s*:\s*.+$/);
+      if (colonMatch) {
+        const normalized = this.normalizeArtistName(colonMatch[1]);
+        if (normalized && !identifiers.includes(normalized)) {
+          identifiers.push(normalized);
+        }
+      }
+    }
+    
+    return identifiers;
+  }
+
+  /**
+   * Set minimum artist distance
+   */
+  setMinArtistDistance(distance) {
+    const d = Number(distance);
+    if (Number.isNaN(d) || d < 0) {
+      console.warn("Invalid artist distance:", distance);
+      return;
+    }
+    this.minArtistDistance = Math.round(d);
+    console.log(`Minimum artist distance set to ${this.minArtistDistance} songs`);
+    this.broadcastSettingsUpdate();
+  }
+
+  /**
+   * Check if two songs are from the same artist (comparing both author field and title)
+   */
+  isSameArtist(song1, song2) {
+    if (!song1 || !song2) return false;
+    
+    const identifiers1 = this.extractArtistIdentifiers(song1);
+    const identifiers2 = this.extractArtistIdentifiers(song2);
+    
+    // Check if any identifier from song1 matches any from song2
+    for (const id1 of identifiers1) {
+      for (const id2 of identifiers2) {
+        if (id1 === id2) return true;
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * Check if artist can be played at given position
+   * Returns true if there are no conflicts with minArtistDistance
+   */
+  canPlayArtistAt(queue, position, candidateSong) {
+    if (!candidateSong || this.minArtistDistance === 0) return true;
+    
+    const candidateIdentifiers = this.extractArtistIdentifiers(candidateSong);
+    if (candidateIdentifiers.length === 0) return true;
+
+    // Check backward
+    const checkStart = Math.max(0, position - this.minArtistDistance);
+    for (let i = checkStart; i < position; i++) {
+      if (this.isSameArtist(queue[i], candidateSong)) {
+        return false;
+      }
+    }
+
+    // Check forward
+    const checkEnd = Math.min(queue.length, position + this.minArtistDistance + 1);
+    for (let i = position + 1; i < checkEnd; i++) {
+      if (this.isSameArtist(queue[i], candidateSong)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 }
 
