@@ -58,6 +58,11 @@ export class RadioEngine extends EventEmitter {
     }
 
     console.log("Queue loaded:", this.queue.map(s => s.title));
+    
+    if (this.queue.length > 0) {
+      this.shuffleQueue();
+      console.log("Queue shuffled on initial load");
+    }
   }
 
   playNext() {
