@@ -1,14 +1,17 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { API_BASE } from "../src/config";
 import { loginStyles as styles } from "../src/styles/loginStyles";
+import { colors } from "../src/theme";
 
 export default function Index() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 768;
   const [wavetoken, setWaveToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -126,31 +129,59 @@ export default function Index() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        <Text style={styles.title}>MetaWave Login</Text>
-        <Text style={styles.subtitle}>Gib deinen aktuellen WaveToken ein, um den Live Radio Stream zu hören.</Text>
+      <View style={[styles.content, isDesktop && styles.contentDesktop]}>
+        <View style={[styles.logoContainer, isDesktop && styles.logoContainerDesktop]}>
+          <Image 
+            source={isDesktop ? require("./assets/icons/web/icon-512-maskable.png") : require("./assets/icons/web/icon-192-maskable.png")}
+            style={[styles.logo, isDesktop && styles.logoDesktop]}
+            resizeMode="contain"
+          />
+        </View>
+        <Text style={[styles.title, isDesktop && styles.titleDesktop]}>Willkommen bei{"\n"}MetaWave!</Text>
+        <Text style={[styles.subtitle, isDesktop && styles.subtitleDesktop]}>WaveToken</Text>
 
         <TextInput
-          style={styles.input}
+          style={[styles.input, isDesktop && styles.inputDesktop]}
           value={wavetoken}
           onChangeText={setWaveToken}
-          placeholder="WaveToken (z.B. MW202601-RADIO)"
+          placeholder=""
+          placeholderTextColor={colors.textMuted}
           autoCapitalize="characters"
           autoCorrect={false}
         />
 
-        <TouchableOpacity style={styles.loginButton} onPress={handleLogin} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.loginText}>Einloggen & Hören</Text>}
+        <TouchableOpacity 
+          style={[styles.loginButton, isDesktop && styles.loginButtonDesktop]} 
+          onPress={handleLogin} 
+          disabled={loading}
+        >
+          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.loginText}>Anmelden</Text>}
         </TouchableOpacity>
 
-        <View style={styles.helperRow}>
+        <Text style={styles.helperText}>Kein WaveToken?</Text>
+
+        <View style={[styles.helperRow, isDesktop && styles.helperRowDesktop]}>
           <TouchableOpacity style={styles.helperButton} onPress={() => router.push("/invite")}>
             <Text style={styles.helperButtonText}>Signal Invite</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.helperButton} onPress={() => router.push("/email") }>
-            <Text style={styles.helperButtonText}>E-Mail Notification</Text>
+          <TouchableOpacity style={styles.helperButton} onPress={() => router.push("/email")}>
+            <Text style={styles.helperButtonText}>E-Mail Notifier</Text>
           </TouchableOpacity>
         </View>
+      </View>
+      
+      {/* Footer */}
+      <View style={[styles.footer, isDesktop && styles.footerDesktop]}>
+        <View style={styles.footerLeft}>
+          <TouchableOpacity onPress={() => {/* TODO: Impressum */}}>
+            <Text style={styles.footerLink}>Impressum</Text>
+          </TouchableOpacity>
+          <Text style={styles.footerDivider}>/</Text>
+          <TouchableOpacity onPress={() => {/* TODO: Datenschutz */}}>
+            <Text style={styles.footerLink}>Datenschutz</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.footerVersion}>v1.0.0</Text>
       </View>
     </SafeAreaView>
   );

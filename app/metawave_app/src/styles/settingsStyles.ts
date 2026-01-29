@@ -1,20 +1,21 @@
 import { StyleSheet } from "react-native";
+import { colors } from "../theme";
 
 export const settingsStyles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#1d1d1d",
+    backgroundColor: colors.background,
   },
   centered: {
     flex: 1,
-    backgroundColor: "#1d1d1d",
+    backgroundColor: colors.background,
     justifyContent: "center",
     alignItems: "center",
   },
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: "#ffffff",
+    color: colors.textPrimary,
   },
   headerRow: {
     flexDirection: "row",
@@ -26,13 +27,13 @@ export const settingsStyles = StyleSheet.create({
   },
   backButton: {
     fontSize: 16,
-    color: "#ffffff",
+    color: colors.textPrimary,
     fontWeight: "600",
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#ffffff",
+    color: colors.textPrimary,
     textAlign: "center",
     letterSpacing: 0.5,
   },
@@ -45,7 +46,7 @@ export const settingsStyles = StyleSheet.create({
   sectionTitle: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#dddddd",
+    color: colors.textSecondary,
     marginBottom: 12,
     textTransform: "uppercase",
     letterSpacing: 1.2,
@@ -54,7 +55,7 @@ export const settingsStyles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#282828",
+    backgroundColor: colors.backgroundCard,
     borderRadius: 16,
     padding: 20,
     marginBottom: 12,
@@ -71,16 +72,16 @@ export const settingsStyles = StyleSheet.create({
   settingLabel: {
     fontSize: 17,
     fontWeight: "600",
-    color: "#ffffff",
+    color: colors.textPrimary,
     marginBottom: 6,
   },
   settingDescription: {
     fontSize: 14,
-    color: "#aaaaaa",
+    color: colors.textSecondary,
     lineHeight: 20,
   },
   settingCard: {
-    backgroundColor: "#282828",
+    backgroundColor: colors.backgroundCard,
     borderRadius: 16,
     padding: 20,
     marginBottom: 12,
@@ -100,7 +101,7 @@ export const settingsStyles = StyleSheet.create({
   sliderValue: {
     fontSize: 24,
     fontWeight: "700",
-    color: "#2196F3",
+    color: colors.primary,
   },
   slider: {
     width: "100%",
@@ -113,25 +114,25 @@ export const settingsStyles = StyleSheet.create({
   },
   sliderLabelText: {
     fontSize: 12,
-    color: "#888888",
+    color: colors.textMuted,
   },
   infoBox: {
-    backgroundColor: "#282828",
+    backgroundColor: colors.backgroundCard,
     borderRadius: 16,
     padding: 20,
     marginTop: 8,
     borderLeftWidth: 4,
-    borderLeftColor: "#4CAF50",
+    borderLeftColor: colors.success,
   },
   infoTitle: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#ffffff",
+    color: colors.textPrimary,
     marginBottom: 10,
   },
   infoText: {
     fontSize: 14,
-    color: "#cccccc",
+    color: colors.textSecondary,
     lineHeight: 22,
   },
 });

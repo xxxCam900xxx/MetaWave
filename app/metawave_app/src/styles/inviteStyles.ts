@@ -1,9 +1,10 @@
 import { StyleSheet } from "react-native";
+import { colors } from "../theme";
 
 export const inviteStyles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#1d1d1d",
+    backgroundColor: colors.background,
   },
   headerRow: {
     flexDirection: "row",
@@ -13,12 +14,12 @@ export const inviteStyles = StyleSheet.create({
     paddingTop: 24,
   },
   headerTitle: {
-    color: "#ffffff",
+    color: colors.textPrimary,
     fontSize: 18,
     fontWeight: "600",
   },
   backText: {
-    color: "#4fa3ff",
+    color: colors.primaryLight,
   },
   content: {
     flex: 1,
@@ -26,7 +27,7 @@ export const inviteStyles = StyleSheet.create({
     paddingTop: 32,
   },
   subtitle: {
-    color: "#dddddd",
+    color: colors.textSecondary,
     marginBottom: 24,
     fontSize: 14,
   },
@@ -34,8 +35,8 @@ export const inviteStyles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#282828",
-    color: "#ffffff",
+    backgroundColor: colors.backgroundInput,
+    color: colors.textPrimary,
     marginBottom: 24,
   },
   primaryButton: {
@@ -43,11 +44,11 @@ export const inviteStyles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#1db954",
+    backgroundColor: colors.primary,
     marginBottom: 12,
   },
   primaryText: {
-    color: "#ffffff",
+    color: colors.textPrimary,
     fontWeight: "600",
     fontSize: 16,
   },
@@ -56,10 +57,10 @@ export const inviteStyles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#2a1218",
+    backgroundColor: colors.backgroundDark,
   },
   secondaryText: {
-    color: "#ff6b6b",
+    color: colors.error,
     fontWeight: "600",
     fontSize: 16,
   },

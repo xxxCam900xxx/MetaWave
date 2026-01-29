@@ -1,19 +1,20 @@
 import { StyleSheet } from "react-native";
+import { colors } from "../theme";
 
 export const playerStyles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#1d1d1d",
+    backgroundColor: colors.background,
   },
   centered: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#1d1d1d",
+    backgroundColor: colors.background,
   },
   loadingText: {
     marginTop: 12,
-    color: "#ffffff",
+    color: colors.textPrimary,
   },
   headerRow: {
     flexDirection: "row",
@@ -23,16 +24,16 @@ export const playerStyles = StyleSheet.create({
     paddingTop: 24,
   },
   headerTitle: {
-    color: "#ffffff",
+    color: colors.textPrimary,
     fontSize: 18,
     fontWeight: "600",
   },
   settingsText: {
-    color: "#ffffff",
+    color: colors.textPrimary,
     fontSize: 14,
   },
   logoutText: {
-    color: "#ff6b6b",
+    color: colors.error,
     fontSize: 14,
   },
   centerContent: {
@@ -61,12 +62,12 @@ export const playerStyles = StyleSheet.create({
     marginBottom: 24,
   },
   coverPlaceholder: {
-    backgroundColor: "#282828",
+    backgroundColor: colors.backgroundCard,
     alignItems: "center",
     justifyContent: "center",
   },
   coverPlaceholderText: {
-    color: "#dddddd",
+    color: colors.textSecondary,
     fontSize: 22,
     fontWeight: "700",
   },
@@ -75,19 +76,19 @@ export const playerStyles = StyleSheet.create({
     marginBottom: 24,
   },
   songTitle: {
-    color: "#ffffff",
+    color: colors.textPrimary,
     fontSize: 20,
     fontWeight: "700",
     textAlign: "center",
   },
   songAuthor: {
-    color: "#dddddd",
+    color: colors.textSecondary,
     fontSize: 14,
     marginTop: 4,
     textAlign: "center",
   },
   queueText: {
-    color: "#dddddd",
+    color: colors.textSecondary,
     marginTop: 4,
     fontSize: 12,
   },
@@ -99,11 +100,11 @@ export const playerStyles = StyleSheet.create({
     flexDirection: "row",
     height: 6,
     borderRadius: 999,
-    backgroundColor: "#3a3a3a",
+    backgroundColor: colors.border,
     overflow: "hidden",
   },
   progressBarFill: {
-    backgroundColor: "#1db954",
+    backgroundColor: colors.primary,
   },
   progressLabelRow: {
     flexDirection: "row",
@@ -111,19 +112,19 @@ export const playerStyles = StyleSheet.create({
     marginTop: 8,
   },
   progressLabel: {
-    color: "#dddddd",
+    color: colors.textSecondary,
     fontSize: 12,
   },
   progressRightBlock: {
     alignItems: "flex-end",
   },
   progressEndLabel: {
-    color: "#cccccc",
+    color: colors.textSecondary,
     fontSize: 11,
     marginTop: 2,
   },
   errorText: {
-    color: "#ff6b6b",
+    color: colors.error,
     marginBottom: 12,
   },
   controlsRowMain: {
@@ -137,12 +138,12 @@ export const playerStyles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: "#1db954",
+    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
   },
   playButtonText: {
-    color: "#000000",
+    color: colors.textPrimary,
     fontWeight: "700",
     fontSize: 16,
   },
@@ -150,12 +151,12 @@ export const playerStyles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#282828",
+    backgroundColor: colors.backgroundCard,
     alignItems: "center",
     justifyContent: "center",
   },
   secondaryButtonText: {
-    color: "#ffffff",
+    color: colors.textPrimary,
     fontSize: 18,
   },
   controlsRowSecondary: {
@@ -166,10 +167,10 @@ export const playerStyles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: "#282828",
+    backgroundColor: colors.backgroundCard,
   },
   chipText: {
-    color: "#ffffff",
+    color: colors.textPrimary,
   },
   queueContainer: {
     marginTop: 24,
@@ -184,7 +185,7 @@ export const playerStyles = StyleSheet.create({
     alignSelf: "stretch",
   },
   queueHeader: {
-    color: "#ffffff",
+    color: colors.textPrimary,
     fontSize: 16,
     fontWeight: "600",
     marginBottom: 8,
@@ -199,11 +200,13 @@ export const playerStyles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 10,
-    backgroundColor: "#282828",
+    backgroundColor: colors.backgroundDark,
     marginBottom: 6,
   },
   queueItemActive: {
-    backgroundColor: "#1db95433",
+    backgroundColor: colors.backgroundCard,
+    borderWidth: 1,
+    borderColor: colors.primary,
   },
   queueItemPlayed: {
     opacity: 0.4,
@@ -213,14 +216,14 @@ export const playerStyles = StyleSheet.create({
     height: 42,
     borderRadius: 6,
     marginRight: 10,
-    backgroundColor: "#282828",
+    backgroundColor: colors.backgroundCard,
   },
   queueThumbnailPlaceholder: {
     alignItems: "center",
     justifyContent: "center",
   },
   queueThumbnailText: {
-    color: "#ffffff",
+    color: colors.textPrimary,
     fontSize: 18,
     fontWeight: "600",
   },
@@ -229,20 +232,20 @@ export const playerStyles = StyleSheet.create({
     marginRight: 8,
   },
   queueTitle: {
-    color: "#ffffff",
+    color: colors.textPrimary,
     fontSize: 14,
     fontWeight: "500",
   },
   queueTitleActive: {
-    color: "#1db954",
+    color: colors.primary,
   },
   queueAuthor: {
-    color: "#f0f0f0",
+    color: colors.textSecondary,
     fontSize: 12,
     marginTop: 2,
   },
   queueDuration: {
-    color: "#f0f0f0",
+    color: colors.textSecondary,
     fontSize: 12,
   },
 });
