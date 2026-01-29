@@ -6,7 +6,7 @@
 
 // Passe diesen Wert an, wenn du keine ENV-Variable verwenden willst.
 // Für Production: öffentliche API-Domain
-const DEFAULT_API_BASE = "http://localhost:8000";
+const DEFAULT_API_BASE = "https://api.metawave.timofej.ch";
 
 const rawBase = (() => {
 	// 1) Expo / React-Native: öffentliche ENV-Variable (optional)

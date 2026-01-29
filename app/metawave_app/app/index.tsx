@@ -2,12 +2,13 @@ import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { API_BASE } from "../src/config";
 import { loginStyles as styles } from "../src/styles/loginStyles";
 
 export default function Index() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const [wavetoken, setWaveToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -15,6 +16,15 @@ export default function Index() {
   useEffect(() => {
     const checkExistingToken = async () => {
       try {
+        // Check for URL parameters (token or wavetoken)
+        const urlWaveToken = params.wavetoken || params.token;
+        
+        if (urlWaveToken && typeof urlWaveToken === "string") {
+          // URL parameter login
+          await handleUrlLogin(urlWaveToken);
+          return;
+        }
+
         const stored = await AsyncStorage.getItem("authToken");
         if (!stored) {
           setCheckingSession(false);
@@ -46,7 +56,26 @@ export default function Index() {
     };
 
     checkExistingToken();
-  }, [router]);
+  }, [router, params]);
+
+  const handleUrlLogin = async (urlToken: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/login?wavetoken=${encodeURIComponent(urlToken)}`);
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.token) {
+        Alert.alert("Login Fehler", json?.message || "URL-basierte Authentifizierung fehlgeschlagen");
+        setCheckingSession(false);
+        return;
+      }
+
+      await AsyncStorage.setItem("authToken", json.token);
+      router.replace("/player");
+    } catch (err) {
+      Alert.alert("Netzwerkfehler", "Keine Verbindung zum MetaWave Radio Server.");
+      setCheckingSession(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (!wavetoken.trim()) {

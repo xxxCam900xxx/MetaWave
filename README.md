@@ -14,6 +14,7 @@ MetaWave löst das Problem des gemeinsamen Musik-Streamings ohne Werbung und mit
 - **Synchrones Hören** mit mehreren Teilnehmern
 - **Gemeinsame Kontrolle** (Skip, Shuffle, Queue Management)
 - **Sichere Authentifizierung** mit monatlichen Wave-Tokens
+- **URL-basierter Login** für direkten Zugriff ohne manuelle Token-Eingabe
 - **Cross-Platform Client** (Web, iOS, Android via Expo)
 - **Individuelle Lautstärkeregelung** pro Client
 - **Push-Benachrichtigungen** für neue Tokens
@@ -97,9 +98,11 @@ Detaillierte Setup-Anweisungen finden Sie in [docker/README.md](docker/README.md
 | Datei | Beschreibung |
 |-------|-------------|
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Produktive Deployment-Anleitung |
+| [URL_LOGIN.md](URL_LOGIN.md) | URL-Parameter Login Feature |
 | [concept/README.md](concept/README.md) | Detaillierte Projektbeschreibung |
 | [concept/ENDPOINTS.md](concept/ENDPOINTS.md) | API-Dokumentation |
 | [concept/DOWNLOADER_LOGIC.md](concept/DOWNLOADER_LOGIC.md) | Downloader-Architektur |
+| [concept/URL_LOGIN_DEMO.html](concept/URL_LOGIN_DEMO.html) | Interaktive Login-Demo |
 | [docker/README.md](docker/README.md) | Docker Setup Guide |
 | [docker/GET_YT_COOKIES.md](docker/GET_YT_COOKIES.md) | YouTube Cookie Setup |
 
@@ -135,10 +138,26 @@ Detaillierte Setup-Anweisungen finden Sie in [docker/README.md](docker/README.md
 Die vollständige API-Dokumentation finden Sie in [concept/ENDPOINTS.md](concept/ENDPOINTS.md).
 
 Wichtige Endpunkte:
-- `POST /login` - Authentifizierung mit Wave-Token
+- `POST /auth/login` - Authentifizierung mit Wave-Token
+- `GET /auth/login?wavetoken=...` - URL-basierte Authentifizierung (neu!)
 - `GET /stream` - Audio-Stream abrufen
 - `GET /stream/control/skip` - Nächsten Song abspielen
 - `POST /notification/signal/invite` - Signal-Einladung senden
+
+### URL-basierter Login
+
+MetaWave unterstützt jetzt direkten Zugriff über URL-Parameter:
+
+```
+https://metawave.example.com/?wavetoken=MW202601-RADIO
+```
+
+Dies ermöglicht:
+- **Shortcuts & Bookmarks** mit eingebettetem Token
+- **Direct Access Links** für interne Tools
+- **Schnellzugriff** ohne manuelle Token-Eingabe
+
+Mehr Details: [URL_LOGIN.md](URL_LOGIN.md) | Demo: [URL_LOGIN_DEMO.html](concept/URL_LOGIN_DEMO.html)
 
 ## Konfiguration
 
