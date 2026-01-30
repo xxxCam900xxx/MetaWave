@@ -1,15 +1,21 @@
 import React, { useState } from "react";
-import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View, Platform, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { API_BASE } from "../src/config";
 import { inviteStyles as styles } from "../src/styles/inviteStyles";
+import { loginStyles as loginStyles } from "../src/styles/loginStyles";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 
 export default function EmailInviteScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 768;
   const [email, setEmail] = useState("");
   const [loadingInvite, setLoadingInvite] = useState(false);
   const [loadingLeave, setLoadingLeave] = useState(false);
+  const [result, setResult] = useState<null | { option: string; action: string }>(null);
 
   const handleInvite = async () => {
     if (!email.trim()) {
@@ -35,7 +41,8 @@ export default function EmailInviteScreen() {
         return;
       }
 
-      Alert.alert("Erfolg", json?.message || "E-Mail-Empfänger wurde hinzugefügt.");
+      // show result panel (activated)
+      setResult({ option: "E-Mail", action: "aktiviert" });
     } catch (err) {
       Alert.alert("Netzwerkfehler", "Konnte Invite nicht senden.");
     } finally {
@@ -67,7 +74,8 @@ export default function EmailInviteScreen() {
         return;
       }
 
-      Alert.alert("Erfolg", json?.message || "E-Mail-Empfänger wurde entfernt.");
+      // show result panel (removed)
+      setResult({ option: "E-Mail", action: "entfernt" });
     } catch (err) {
       Alert.alert("Netzwerkfehler", "Konnte Leave nicht senden.");
     } finally {
@@ -75,22 +83,54 @@ export default function EmailInviteScreen() {
     }
   };
 
+  if (result) {
+    return (
+      <SafeAreaView style={loginStyles.container}>
+        <View style={[styles.headerRow, isDesktop && styles.headerRowDesktop]}>
+          <TouchableOpacity onPress={() => { setResult(null); }} style={styles.backButton}>
+            <Text style={styles.backButtonText}>Zurück</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={[loginStyles.content, isDesktop && loginStyles.contentDesktop]}>
+          <LinearGradient colors={["#6A55B7", "#2F2651"]} style={[styles.resultIcon, isDesktop && styles.resultIconDesktop]}> 
+            <Ionicons name="chatbubble-ellipses" size={isDesktop ? 140 : 96} color="#ffffff" />
+          </LinearGradient>
+
+          <Text style={[loginStyles.title, isDesktop && loginStyles.titleDesktop]}>Notifier {result.action === "aktiviert" ? "Aktiviert" : "Entfernt"}</Text>
+          <Text style={[styles.resultText, isDesktop && styles.resultTextDesktop]}>
+            {result.action === "aktiviert"
+              ? `Der Notifier für ${result.option} wurde aktiviert, sie sollten eine Benachrichtigung gekriegt haben mit MW-Code!`
+              : `Der Notifier für ${result.option} wurde entfernt.`}
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.headerRow}>
-        <Text style={styles.headerTitle}>E-Mail Notifier</Text>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backText}>Zurück</Text>
+    <SafeAreaView style={loginStyles.container}>
+      <View style={[styles.headerRow, isDesktop && styles.headerRowDesktop]}>
+        <Text style={styles.headerLabel}>Notification Email</Text>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Text style={styles.backButtonText}>Zurück</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.content}>
-        <Text style={styles.subtitle}>
+      <View style={[loginStyles.content, isDesktop && loginStyles.contentDesktop]}>
+        <View style={{ alignItems: "center", width: "100%" }}>
+          <LinearGradient colors={["#6A55B7", "#2F2651"]} style={[styles.resultIcon, isDesktop && styles.resultIconDesktop, { marginBottom: 18 }]}> 
+            <Ionicons name="mail" size={isDesktop ? 140 : 96} color="#ffffff" />
+          </LinearGradient>
+          <Text style={[loginStyles.title, isDesktop && loginStyles.titleDesktop]}>E-Mail Notifyer</Text>
+        </View>
+
+        <Text style={loginStyles.subtitle}>
           Hinterlege hier eine E-Mail-Adresse, an die MetaWave Codes für den Login geschickt werden sollen.
         </Text>
 
         <TextInput
-          style={styles.input}
+          style={[loginStyles.input, isDesktop && loginStyles.inputDesktop]}
           value={email}
           onChangeText={setEmail}
           placeholder="E-Mail-Adresse"
@@ -98,15 +138,15 @@ export default function EmailInviteScreen() {
           keyboardType="email-address"
         />
 
-        <TouchableOpacity style={styles.primaryButton} onPress={handleInvite} disabled={loadingInvite}>
-          {loadingInvite ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>E-Mail hinzufügen</Text>}
+        <TouchableOpacity style={[loginStyles.loginButton, isDesktop && loginStyles.loginButtonDesktop]} onPress={handleInvite} disabled={loadingInvite}>
+          {loadingInvite ? <ActivityIndicator color="#fff" /> : <Text style={loginStyles.loginText}>Hinzufügen</Text>}
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.secondaryButton} onPress={handleLeave} disabled={loadingLeave}>
+        <TouchableOpacity style={loginStyles.helperButton} onPress={handleLeave} disabled={loadingLeave}>
           {loadingLeave ? (
-            <ActivityIndicator color="#ff6b6b" />
+            <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.secondaryText}>E-Mail entfernen</Text>
+            <Text style={loginStyles.helperButtonText}>Löschen</Text>
           )}
         </TouchableOpacity>
       </View>

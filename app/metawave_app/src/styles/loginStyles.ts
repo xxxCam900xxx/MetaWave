@@ -27,6 +27,11 @@ export const loginStyles = StyleSheet.create({
   // Content - Desktop
   contentDesktop: {
     paddingHorizontal: 40,
+    width: "100%",
+    maxWidth: 920,
+    alignSelf: "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
   
   // Logo - Mobile
