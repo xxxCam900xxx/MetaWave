@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Animated, Dimensions, Image, PanResponder, Pl
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { Audio, AVPlaybackStatus } from "expo-av";
 import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
 import { faArrowsRotate, faGear, faRightFromBracket, faBackwardStep, faForwardStep, faPlay, faPause, faShuffle, faVolumeHigh, faVolumeLow, faGripVertical } from "@fortawesome/free-solid-svg-icons";
@@ -918,21 +919,19 @@ export default function PlayerScreen() {
             style={styles.headerIcon}
             onPress={() => {
               if (Platform.OS === "web") {
-                // Hard reload the page in web to fully refresh app state
                 window.location.reload();
               } else {
-                // For native, navigate to the same route to force a reload
                 router.replace("/player");
               }
             }}
           >
-            <FontAwesomeIcon icon={faArrowsRotate} size={18} color="#737373" />
+            <Ionicons name="refresh-outline" size={18} color="#737373" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIcon} onPress={() => router.push("/settings")}>
-            <FontAwesomeIcon icon={faGear} size={18} color="#737373" />
+          <TouchableOpacity style={styles.headerIcon} onPress={() => router.push("/settings" as any)}>
+            <Ionicons name="settings-outline" size={18} color="#737373" />
           </TouchableOpacity>
           <TouchableOpacity style={styles.headerIcon} onPress={logout}>
-            <FontAwesomeIcon icon={faRightFromBracket} size={18} color="#FF6B6B" />
+            <Ionicons name="log-out-outline" size={18} color="#FF6B6B" />
           </TouchableOpacity>
         </View>
       </View>
@@ -1216,15 +1215,24 @@ export default function PlayerScreen() {
         </ScrollView>
       )}
       
+      {/* Mobile back button (like settings) */}
+      {!isDesktop && (
+        <View style={styles.mobileBackButtonContainer}>
+          <TouchableOpacity style={styles.mobileBackButton} onPress={() => router.back()}>
+            <Text style={styles.mobileBackButtonText}>Zurück</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Footer - only on desktop */}
       {isDesktop && (
         <View style={[styles.footer, styles.footerDesktop]}>
           <View style={styles.footerLeft}>
-            <TouchableOpacity onPress={() => router.push("/impressum")}>
+            <TouchableOpacity onPress={() => router.push("/impressum" as any)}>
               <Text style={styles.footerLink}>Impressum</Text>
             </TouchableOpacity>
             <Text style={styles.footerDivider}>/</Text>
-            <TouchableOpacity onPress={() => router.push("/datenschutz")}>
+            <TouchableOpacity onPress={() => router.push("/datenschutz" as any)}>
               <Text style={styles.footerLink}>Datenschutz</Text>
             </TouchableOpacity>
           </View>

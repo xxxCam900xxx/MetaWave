@@ -1,7 +1,7 @@
 import { StyleSheet } from "react-native";
 import { colors } from "../theme";
 
-export const playerStyles = StyleSheet.create({
+export const playerStyles = StyleSheet.create<any>({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -51,6 +51,27 @@ export const playerStyles = StyleSheet.create({
   headerIconTextLogout: {
     color: colors.error,
     fontSize: 18,
+  },
+  backButton: {
+    fontSize: 16,
+    color: colors.textPrimary,
+    fontWeight: "600",
+  },
+  mobileBackButtonContainer: {
+    alignItems: "center",
+    paddingVertical: 24,
+    marginTop: 16,
+  },
+  mobileBackButton: {
+    backgroundColor: colors.backgroundCard,
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+  mobileBackButtonText: {
+    fontSize: 16,
+    color: colors.textPrimary,
+    fontWeight: "600",
   },
   settingsText: {
     color: colors.textPrimary,
