@@ -1,12 +1,11 @@
 import "./assets/css/global.css";
-import { Stack } from "expo-router";
+import { Stack, useSegments } from "expo-router";
 import { useEffect } from "react";
 
 export default function RootLayout() {
+  const segments = useSegments();
+  
   useEffect(() => {
-    // Set document title
-    document.title = "MetaWave - Dein Live Radio Stream";
-    
     // Set meta tags
     const setMetaTag = (name: string, content: string, property?: string) => {
       let meta = document.querySelector(property ? `meta[property="${property}"]` : `meta[name="${name}"]`);
@@ -23,6 +22,7 @@ export default function RootLayout() {
     };
 
     setMetaTag("theme-color", "#1C1C1C");
+    setMetaTag("mobile-web-app-capable", "yes");
     setMetaTag("apple-mobile-web-app-capable", "yes");
     setMetaTag("apple-mobile-web-app-status-bar-style", "black-translucent");
     setMetaTag("apple-mobile-web-app-title", "MetaWave");
@@ -33,7 +33,7 @@ export default function RootLayout() {
     setMetaTag("", "Dein persönlicher Live Radio Stream", "og:description");
     setMetaTag("", "website", "og:type");
     
-    // Set favicon and icons
+    // Set favicon and icons - using maskable icons
     const setLinkTag = (rel: string, href: string, sizes?: string, type?: string) => {
       let link = document.querySelector(`link[rel="${rel}"]${sizes ? `[sizes="${sizes}"]` : ""}`);
       if (!link) {
@@ -46,12 +46,47 @@ export default function RootLayout() {
       link.setAttribute("href", href);
     };
 
-    setLinkTag("icon", "/assets/icons/web/favicon.ico", undefined, "image/x-icon");
-    setLinkTag("icon", "/assets/icons/web/icon-192.png", "192x192", "image/png");
-    setLinkTag("icon", "/assets/icons/web/icon-512.png", "512x512", "image/png");
-    setLinkTag("apple-touch-icon", "/assets/icons/web/apple-touch-icon.png");
+    setLinkTag("icon", "/favicon.ico", undefined, "image/x-icon");
+    setLinkTag("icon", "/icon-192-maskable.png", "192x192", "image/png");
+    setLinkTag("icon", "/icon-512-maskable.png", "512x512", "image/png");
+    setLinkTag("apple-touch-icon", "/apple-touch-icon.png");
     setLinkTag("manifest", "/manifest.json");
   }, []);
+
+  // Update document title based on route
+  useEffect(() => {
+    const currentSegment = segments[segments.length - 1];
+    let title = "MetaWave";
+    
+    switch (currentSegment) {
+      case undefined:
+      case "(index)":
+        title = "MetaWave - Login";
+        break;
+      case "player":
+        title = "MetaWave - Radio Player";
+        break;
+      case "settings":
+        title = "MetaWave - Einstellungen";
+        break;
+      case "invite":
+        title = "MetaWave - Signal Notifier";
+        break;
+      case "email":
+        title = "MetaWave - E-Mail Notifier";
+        break;
+      case "impressum":
+        title = "MetaWave - Impressum";
+        break;
+      case "datenschutz":
+        title = "MetaWave - Datenschutz";
+        break;
+      default:
+        title = "MetaWave";
+    }
+    
+    document.title = title;
+  }, [segments]);
 
   return <Stack screenOptions={{ headerShown: false }} />;
 }

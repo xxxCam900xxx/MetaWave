@@ -100,7 +100,10 @@ export class RadioEngine extends EventEmitter {
 
     const startTime = Date.now();
     
-    this.emit("meta", this.getMeta());
+    // Ensure emitted meta for the newly started track reports elapsed=0 for safety
+    const initialMeta = this.getMeta();
+    initialMeta.elapsed = 0;
+    this.emit("meta", initialMeta);
 
     // New pipeline: decoder -> live gain Transform -> encoder
     // Decoder: decode to signed 16-bit PCM, 2 channels, 44100 Hz
@@ -218,7 +221,16 @@ export class RadioEngine extends EventEmitter {
       this.lastQueueHash = null;
       this.cachedQueueState = null;
 
+      // Start next track first so `currentProcessElapsedTime` and internal
+      // start time are reset before broadcasting the new meta. This avoids
+      // sending the previous track's elapsed value to clients.
+      // Start next track first so currentProcessElapsedTime is reset, then
+      // broadcast a trackChanged with explicit elapsed=0 to avoid sending
+      // stale elapsed timestamps.
+      this.playNext();
+
       const meta = this.getMeta();
+      meta.elapsed = 0;
       for (const ws of this.wsClients) {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "trackChanged", meta }));
@@ -226,7 +238,6 @@ export class RadioEngine extends EventEmitter {
       }
 
       this.broadcastQueueUpdate();
-      this.playNext();
     };
 
     const handleErr = (chunk) => {

@@ -78,7 +78,7 @@ export default function EmailInviteScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.headerRow}>
-        <Text style={styles.headerTitle}>E-Mail Notification</Text>
+        <Text style={styles.headerTitle}>E-Mail Notifier</Text>
         <TouchableOpacity onPress={() => router.back()}>
           <Text style={styles.backText}>Zurück</Text>
         </TouchableOpacity>

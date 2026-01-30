@@ -173,11 +173,11 @@ export default function Index() {
       {/* Footer */}
       <View style={[styles.footer, isDesktop && styles.footerDesktop]}>
         <View style={styles.footerLeft}>
-          <TouchableOpacity onPress={() => {/* TODO: Impressum */}}>
+          <TouchableOpacity onPress={() => router.push('/impressum')}>
             <Text style={styles.footerLink}>Impressum</Text>
           </TouchableOpacity>
           <Text style={styles.footerDivider}>/</Text>
-          <TouchableOpacity onPress={() => {/* TODO: Datenschutz */}}>
+          <TouchableOpacity onPress={() => router.push('/datenschutz')}>
             <Text style={styles.footerLink}>Datenschutz</Text>
           </TouchableOpacity>
         </View>

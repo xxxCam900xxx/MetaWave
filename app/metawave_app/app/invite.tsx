@@ -78,7 +78,7 @@ export default function InviteScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.headerRow}>
-        <Text style={styles.headerTitle}>Signal Notification Invite</Text>
+        <Text style={styles.headerTitle}>Signal Notifier</Text>
         <TouchableOpacity onPress={() => router.back()}>
           <Text style={styles.backText}>Zurück</Text>
         </TouchableOpacity>
