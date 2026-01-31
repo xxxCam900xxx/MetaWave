@@ -7,6 +7,43 @@ import { inviteStyles as styles } from "../src/styles/inviteStyles";
 import { loginStyles as loginStyles } from "../src/styles/loginStyles";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { colors } from "../src/theme";
+
+type GradientIconProps = {
+  name: React.ComponentProps<typeof Ionicons>['name'];
+  size: number;
+  colors: [string, string, ...string[]];
+};
+
+function GradientIcon({ name, size, colors: gradColors }: GradientIconProps) {
+  const container = { width: size, height: size, alignItems: 'center' as const, justifyContent: 'center' as const };
+  let MaskedViewModule: any = null;
+  try {
+    // try dynamic require to avoid bundler error if package isn't installed
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    MaskedViewModule = require('@react-native-masked-view/masked-view').default || require('@react-native-masked-view/masked-view');
+  } catch (e) {
+    MaskedViewModule = null;
+  }
+
+  if (MaskedViewModule) {
+    return (
+      <MaskedViewModule
+        style={container}
+        maskElement={
+          <View style={container}>
+            <Ionicons name={name} size={size} color="black" />
+          </View>
+        }
+      >
+        <LinearGradient colors={gradColors} style={container} />
+      </MaskedViewModule>
+    );
+  }
+
+  // Fallback: render icon with single primary color if masked-view not available
+  return <Ionicons name={name} size={size} color={gradColors[0] || colors.primary} />;
+}
 
 export default function EmailInviteScreen() {
   const router = useRouter();
@@ -87,23 +124,46 @@ export default function EmailInviteScreen() {
     return (
       <SafeAreaView style={loginStyles.container}>
         <View style={[styles.headerRow, isDesktop && styles.headerRowDesktop]}>
-          <TouchableOpacity onPress={() => { setResult(null); }} style={styles.backButton}>
+          <TouchableOpacity onPress={() => { setResult(null); }} style={[styles.backButton, { marginLeft: 'auto' }]}>
             <Text style={styles.backButtonText}>Zurück</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={[loginStyles.content, isDesktop && loginStyles.contentDesktop]}>
-          <LinearGradient colors={["#6A55B7", "#2F2651"]} style={[styles.resultIcon, isDesktop && styles.resultIconDesktop]}> 
-            <Ionicons name="chatbubble-ellipses" size={isDesktop ? 140 : 96} color="#ffffff" />
-          </LinearGradient>
+        {isDesktop ? (
+          <View style={styles.desktopWrapper}>
+            <View style={[styles.cardContainer, styles.cardContainerDesktop]}>
+              <View style={styles.iconSpacing}>
+                <LinearGradient colors={[colors.primary, colors.primary]} style={[styles.resultIcon, styles.resultIconDesktop]}> 
+                  <Ionicons name="chatbubble-ellipses" size={isDesktop ? 140 : 96} color="#ffffff" />
+                </LinearGradient>
+              </View>
 
-          <Text style={[loginStyles.title, isDesktop && loginStyles.titleDesktop]}>Notifier {result.action === "aktiviert" ? "Aktiviert" : "Entfernt"}</Text>
-          <Text style={[styles.resultText, isDesktop && styles.resultTextDesktop]}>
-            {result.action === "aktiviert"
-              ? `Der Notifier für ${result.option} wurde aktiviert, sie sollten eine Benachrichtigung gekriegt haben mit MW-Code!`
-              : `Der Notifier für ${result.option} wurde entfernt.`}
-          </Text>
-        </View>
+              <Text style={[loginStyles.title, loginStyles.titleDesktop]}>Notifier {result.action === "aktiviert" ? "Aktiviert" : "Entfernt"}</Text>
+              <Text style={[styles.resultText, styles.resultTextDesktop]}>
+                {result.action === "aktiviert"
+                  ? `Der Notifier für ${result.option} wurde aktiviert, sie sollten eine Benachrichtigung gekriegt haben mit MW-Code!`
+                  : `Der Notifier für ${result.option} wurde entfernt.`}
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <View style={loginStyles.content}>
+            <View style={styles.cardContainer}>
+              <View style={[{ alignItems: 'center', width: '100%' }, styles.iconSpacing]}>
+                <LinearGradient colors={[colors.primary, colors.primary]} style={[styles.resultIcon]}> 
+                  <Ionicons name="chatbubble-ellipses" size={isDesktop ? 140 : 96} color="#ffffff" />
+                </LinearGradient>
+              </View>
+
+              <Text style={loginStyles.title}>Notifier {result.action === "aktiviert" ? "Aktiviert" : "Entfernt"}</Text>
+              <Text style={styles.resultText}>
+                {result.action === "aktiviert"
+                  ? `Der Notifier für ${result.option} wurde aktiviert, sie sollten eine Benachrichtigung gekriegt haben mit MW-Code!`
+                  : `Der Notifier für ${result.option} wurde entfernt.`}
+              </Text>
+            </View>
+          </View>
+        )}
       </SafeAreaView>
     );
   }
@@ -111,44 +171,111 @@ export default function EmailInviteScreen() {
   return (
     <SafeAreaView style={loginStyles.container}>
       <View style={[styles.headerRow, isDesktop && styles.headerRowDesktop]}>
-        <Text style={styles.headerLabel}>Notification Email</Text>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity onPress={() => router.back()} style={[styles.backButton, { marginLeft: 'auto' }]}>
           <Text style={styles.backButtonText}>Zurück</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={[loginStyles.content, isDesktop && loginStyles.contentDesktop]}>
-        <View style={{ alignItems: "center", width: "100%" }}>
-          <LinearGradient colors={["#6A55B7", "#2F2651"]} style={[styles.resultIcon, isDesktop && styles.resultIconDesktop, { marginBottom: 18 }]}> 
-            <Ionicons name="mail" size={isDesktop ? 140 : 96} color="#ffffff" />
-          </LinearGradient>
-          <Text style={[loginStyles.title, isDesktop && loginStyles.titleDesktop]}>E-Mail Notifyer</Text>
+      {isDesktop ? (
+        <View style={styles.desktopWrapper}>
+          <View style={[styles.cardContainer, styles.cardContainerDesktop]}>
+            <View style={{ alignItems: 'center', width: '100%' }}>
+              <View style={styles.iconSpacing}>
+                <GradientIcon name="mail" size={160} colors={[colors.primary, colors.primary]} />
+              </View>
+              <Text style={[loginStyles.title, loginStyles.titleDesktop]}>E-Mail Notifyer</Text>
+            </View>
+
+            <Text style={[loginStyles.subtitle, styles.titleSubtitleGap, styles.subtitleCardDesktop]}>
+              Hinterlege hier eine E-Mail-Adresse, an die MetaWave Codes für den Login geschickt werden sollen.
+            </Text>
+
+            <TextInput
+              style={[loginStyles.input, styles.inputCardDesktop]}
+              value={email}
+              onChangeText={setEmail}
+              placeholder="E-Mail-Adresse"
+              autoCapitalize="none"
+              keyboardType="email-address"
+            />
+
+            <TouchableOpacity style={[loginStyles.loginButton, styles.buttonCardDesktop, { marginTop: 16 }]} onPress={handleInvite} disabled={loadingInvite}>
+              {loadingInvite ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={[loginStyles.loginText, isDesktop && loginStyles.loginTextDesktop]}>Hinzufügen</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[loginStyles.helperButton, styles.buttonCardDesktop, { marginTop: 8 }]} onPress={handleLeave} disabled={loadingLeave}>
+              {loadingLeave ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={loginStyles.helperButtonText}>Löschen</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
+      ) : (
+        <View style={[loginStyles.content, { alignItems: 'flex-start' }]}>
+          <View style={styles.cardContainer}>
+            <View style={{ alignItems: 'flex-start', width: '100%' }}>
+              <View style={[styles.iconSpacing, { alignSelf: 'flex-start' }]}>
+                <GradientIcon name="mail" size={120} colors={[colors.primary, colors.primary]} />
+              </View>
+              <Text style={[loginStyles.title, { textAlign: 'left', alignSelf: 'flex-start', marginBottom: 16 }]}>E-Mail Notifyer</Text>
+            </View>
 
-        <Text style={loginStyles.subtitle}>
-          Hinterlege hier eine E-Mail-Adresse, an die MetaWave Codes für den Login geschickt werden sollen.
-        </Text>
+            <Text style={[loginStyles.subtitle, { alignSelf: 'flex-start' }]}> 
+              Hinterlege hier eine E-Mail-Adresse, an die MetaWave Codes für den Login geschickt werden sollen.
+            </Text>
 
-        <TextInput
-          style={[loginStyles.input, isDesktop && loginStyles.inputDesktop]}
-          value={email}
-          onChangeText={setEmail}
-          placeholder="E-Mail-Adresse"
-          autoCapitalize="none"
-          keyboardType="email-address"
-        />
+            <TextInput
+              style={[loginStyles.input]}
+              value={email}
+              onChangeText={setEmail}
+              placeholder="E-Mail-Adresse"
+              autoCapitalize="none"
+              keyboardType="email-address"
+            />
 
-        <TouchableOpacity style={[loginStyles.loginButton, isDesktop && loginStyles.loginButtonDesktop]} onPress={handleInvite} disabled={loadingInvite}>
-          {loadingInvite ? <ActivityIndicator color="#fff" /> : <Text style={loginStyles.loginText}>Hinzufügen</Text>}
-        </TouchableOpacity>
+            <TouchableOpacity style={[loginStyles.loginButton]} onPress={handleInvite} disabled={loadingInvite}>
+              {loadingInvite ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={[loginStyles.loginText, isDesktop && loginStyles.loginTextDesktop]}>Hinzufügen</Text>
+              )}
+            </TouchableOpacity>
 
-        <TouchableOpacity style={loginStyles.helperButton} onPress={handleLeave} disabled={loadingLeave}>
-          {loadingLeave ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={loginStyles.helperButtonText}>Löschen</Text>
-          )}
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                loginStyles.loginButton,
+                { marginTop: 8, backgroundColor: colors.backgroundCard, borderWidth: 1, borderColor: colors.primaryLight },
+              ]}
+              onPress={handleLeave}
+              disabled={loadingLeave}
+            >
+              {loadingLeave ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={loginStyles.helperButtonText}>Löschen</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+      {/* Footer */}
+      <View style={[loginStyles.footer, isDesktop && loginStyles.footerDesktop]}>
+        <View style={loginStyles.footerLeft}>
+          <TouchableOpacity onPress={() => router.push('/impressum')}>
+            <Text style={loginStyles.footerLink}>Impressum</Text>
+          </TouchableOpacity>
+          <Text style={loginStyles.footerDivider}>/</Text>
+          <TouchableOpacity onPress={() => router.push('/datenschutz')}>
+            <Text style={loginStyles.footerLink}>Datenschutz</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={loginStyles.footerVersion}>v1.0.0</Text>
       </View>
     </SafeAreaView>
   );

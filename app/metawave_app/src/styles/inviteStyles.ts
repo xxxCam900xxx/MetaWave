@@ -128,7 +128,7 @@ export const inviteStyles = StyleSheet.create({
     lineHeight: 22,
   },
   resultTitleDesktop: {
-    fontSize: 32,
+    fontSize: 36,
   },
   resultIconDesktop: {
     width: 260,
@@ -137,7 +137,7 @@ export const inviteStyles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   resultTextDesktop: {
-    fontSize: 16,
+    fontSize: 18,
     maxWidth: 520,
   },
   // Main title style reused for page title
@@ -176,5 +176,46 @@ export const inviteStyles = StyleSheet.create({
     width: "100%",
     maxWidth: 420,
     fontSize: 16,
+  },
+  // Desktop centering wrapper
+  desktopWrapper: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+  },
+  // Card container used for desktop and mobile card layout
+  cardContainer: {
+    width: '100%',
+    paddingHorizontal: 24,
+  },
+  cardContainerDesktop: {
+    maxWidth: 520,
+    width: '100%',
+    paddingHorizontal: 0,
+    alignItems: 'center',
+  },
+  // Desktop-specific input/button sizes inside the card
+  inputCardDesktop: {
+    width: 480,
+    maxWidth: 480,
+  },
+  buttonCardDesktop: {
+    width: 480,
+    maxWidth: 480,
+  },
+  // Spacing helpers
+  iconSpacing: {
+    marginBottom: 24,
+  },
+  titleSubtitleGap: {
+    marginBottom: 16,
+  },
+  // Subtitle centering for desktop card
+  subtitleCardDesktop: {
+    alignSelf: 'center',
+    textAlign: 'center',
+    maxWidth: 480,
+    paddingLeft: 0,
   },
 });

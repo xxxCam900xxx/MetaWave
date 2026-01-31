@@ -84,7 +84,7 @@ export default function PlayerScreen() {
 
   // Bottom sheet (mobile) state
   const COLLAPSED_HEIGHT = 220; // Show 2-3 songs
-  const EXPANDED_HEIGHT = Math.round(windowHeight - 80); // Almost full screen
+  const EXPANDED_HEIGHT = Math.round(windowHeight - 120); // Almost full screen (leave larger margin)
   const sheetTranslateY = useRef(new Animated.Value(EXPANDED_HEIGHT - COLLAPSED_HEIGHT)).current;
   const [sheetExpanded, setSheetExpanded] = useState(false);
   const panStartRef = useRef(0);
@@ -122,13 +122,13 @@ export default function PlayerScreen() {
       panStartRef.current = sheetTranslateY._value || 0;
     },
     onPanResponderMove: (_, gestureState) => {
-      const maxTranslate = EXPANDED_HEIGHT - COLLAPSED_HEIGHT;
+      const maxTranslate = Math.max(EXPANDED_HEIGHT - COLLAPSED_HEIGHT, 0);
       const next = Math.min(Math.max(panStartRef.current + gestureState.dy, 0), maxTranslate);
       sheetTranslateY.setValue(next);
     },
     onPanResponderRelease: (_, gestureState) => {
       const velocity = gestureState.vy;
-      const maxTranslate = EXPANDED_HEIGHT - COLLAPSED_HEIGHT;
+      const maxTranslate = Math.max(EXPANDED_HEIGHT - COLLAPSED_HEIGHT, 0);
       // @ts-ignore
       const currentValue = sheetTranslateY._value || 0;
       const threshold = maxTranslate / 2;
@@ -1217,11 +1217,7 @@ export default function PlayerScreen() {
       
       {/* Mobile back button (like settings) */}
       {!isDesktop && (
-        <View style={styles.mobileBackButtonContainer}>
-          <TouchableOpacity style={styles.mobileBackButton} onPress={() => router.back()}>
-            <Text style={styles.mobileBackButtonText}>Zurück</Text>
-          </TouchableOpacity>
-        </View>
+        null
       )}
 
       {/* Footer - only on desktop */}
