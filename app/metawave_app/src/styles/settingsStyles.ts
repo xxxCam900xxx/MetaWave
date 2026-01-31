@@ -1,106 +1,176 @@
-import { StyleSheet } from "react-native";
+import { StyleSheet, Platform, Dimensions } from "react-native";
+import { colors } from "../theme";
 
-export const settingsStyles = StyleSheet.create({
+const isWeb = Platform.OS === "web";
+const { width } = Dimensions.get("window");
+const isDesktop = isWeb && width >= 768;
+
+export const settingsStyles = StyleSheet.create<any>({
   container: {
     flex: 1,
-    backgroundColor: "#1d1d1d",
+    backgroundColor: colors.background,
   },
   centered: {
     flex: 1,
-    backgroundColor: "#1d1d1d",
+    backgroundColor: colors.background,
     justifyContent: "center",
     alignItems: "center",
   },
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: "#ffffff",
+    color: colors.textPrimary,
   },
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.backgroundDark,
+  },
+  headerRowDesktop: {
     paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 16,
+    paddingVertical: 16,
+  },
+  headerTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  headerIcons: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  headerIcon: {
+    padding: 4,
+  },
+  headerIconText: {
+    color: colors.textSecondary,
+    fontSize: 18,
+  },
+  headerIconTextLogout: {
+    color: colors.error,
+    fontSize: 18,
   },
   backButton: {
     fontSize: 16,
-    color: "#ffffff",
+    color: colors.textPrimary,
     fontWeight: "600",
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#ffffff",
-    textAlign: "center",
-    letterSpacing: 0.5,
+  mobileBackButtonContainer: {
+    alignItems: "center",
+    paddingVertical: 24,
+    marginTop: 16,
+  },
+  mobileBackButton: {
+    backgroundColor: colors.backgroundCard,
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+  mobileBackButtonText: {
+    fontSize: 16,
+    color: colors.textPrimary,
+    fontWeight: "600",
+  },
+  settingsText: {
+    color: colors.textPrimary,
+    fontSize: 14,
+  },
+  logoutText: {
+    color: colors.error,
+    fontSize: 14,
   },
   content: {
     padding: 24,
+    paddingBottom: 100,
+  },
+  sectionsContainer: {
+    flexDirection: isDesktop ? "row" : "column",
+    justifyContent: isDesktop ? "center" : "flex-start",
+    gap: isDesktop ? 48 : 0,
   },
   section: {
-    marginBottom: 32,
+    marginBottom: isDesktop ? 0 : 20,
+    flex: isDesktop ? 1 : undefined,
+    maxWidth: isDesktop ? 400 : undefined,
+  },
+
+  // Desktop back button placed under settings
+  desktopBackButtonContainer: {
+    alignItems: "center",
+    marginVertical: 20,
+  },
+  desktopBackButton: {
+    backgroundColor: colors.backgroundCard,
+    paddingHorizontal: 40,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+  desktopBackButtonText: {
+    fontSize: 16,
+    color: colors.textPrimary,
+    fontWeight: "600",
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 24,
     fontWeight: "700",
-    color: "#dddddd",
-    marginBottom: 12,
-    textTransform: "uppercase",
-    letterSpacing: 1.2,
+    color: colors.textPrimary,
+    marginBottom: 16,
   },
   settingRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#282828",
-    borderRadius: 16,
-    padding: 20,
+    backgroundColor: colors.backgroundCard,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+    borderRadius: 8,
+    paddingLeft: 16,
+    paddingRight: 16,
+    paddingVertical: 16,
     marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
   },
   settingInfo: {
     flex: 1,
     marginRight: 16,
   },
   settingLabel: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "600",
-    color: "#ffffff",
-    marginBottom: 6,
+    color: colors.textPrimary,
+    marginBottom: 4,
   },
   settingDescription: {
-    fontSize: 14,
-    color: "#aaaaaa",
-    lineHeight: 20,
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
   },
   settingCard: {
-    backgroundColor: "#282828",
-    borderRadius: 16,
-    padding: 20,
+    backgroundColor: colors.backgroundCard,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+    borderRadius: 8,
+    paddingLeft: 16,
+    paddingRight: 16,
+    paddingVertical: 16,
     marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
   },
   sliderContainer: {
-    marginTop: 20,
+    marginTop: 8,
   },
   sliderHeader: {
-    marginBottom: 12,
+    marginBottom: 0,
     alignItems: "center",
   },
   sliderValue: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#2196F3",
+    fontSize: 16,
+    fontWeight: "600",
+    color: colors.textPrimary,
+    textAlign: "center",
   },
   slider: {
     width: "100%",
@@ -109,29 +179,76 @@ export const settingsStyles = StyleSheet.create({
   sliderLabels: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 4,
+    marginTop: -4,
   },
   sliderLabelText: {
     fontSize: 12,
-    color: "#888888",
+    color: colors.textMuted,
   },
   infoBox: {
-    backgroundColor: "#282828",
+    backgroundColor: colors.backgroundCard,
     borderRadius: 16,
     padding: 20,
     marginTop: 8,
     borderLeftWidth: 4,
-    borderLeftColor: "#4CAF50",
+    borderLeftColor: colors.success,
   },
   infoTitle: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#ffffff",
+    color: colors.textPrimary,
     marginBottom: 10,
   },
   infoText: {
     fontSize: 14,
-    color: "#cccccc",
+    color: colors.textSecondary,
     lineHeight: 22,
+  },
+  // Mobile back button at bottom
+  mobileBackButtonContainer: {
+    alignItems: "center",
+    paddingVertical: 24,
+    marginTop: 16,
+  },
+  mobileBackButton: {
+    backgroundColor: colors.backgroundCard,
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+  mobileBackButtonText: {
+    fontSize: 16,
+    color: colors.textPrimary,
+    fontWeight: "600",
+  },
+  // Footer
+  footer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.backgroundDark,
+  },
+  footerDesktop: {
+    paddingHorizontal: 24,
+  },
+  footerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  footerLink: {
+    color: colors.textMuted,
+    fontSize: 12,
+  },
+  footerDivider: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginHorizontal: 8,
+  },
+  footerVersion: {
+    color: colors.textMuted,
+    fontSize: 12,
   },
 });

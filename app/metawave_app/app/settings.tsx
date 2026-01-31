@@ -1,14 +1,21 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Switch, Text, TouchableOpacity, View, ScrollView } from "react-native";
+import { ActivityIndicator, Alert, Switch, Text, TouchableOpacity, View, ScrollView, Platform, useWindowDimensions } from "react-native";
 import Slider from "@react-native-community/slider";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
+import { useRouter, Link } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { API_BASE } from "../src/config";
 import { settingsStyles as styles } from "../src/styles/settingsStyles";
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isDesktop = Platform.OS === "web" && width >= 768;
+  const logout = async () => {
+    await AsyncStorage.removeItem("authToken");
+    router.replace("/");
+  };
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [monotoneEnabled, setMonotoneEnabled] = useState(false);
@@ -177,112 +184,148 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backButton}>← Zurück</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Einstellungen</Text>
-        <View style={{ width: 80 }} />
+      {/* Header (copied from player) */}
+      <View style={[styles.headerRow, isDesktop && styles.headerRowDesktop]}>
+        <Text style={styles.headerTitle} selectable={false}>MetaWave</Text>
+        <View style={styles.headerIcons}>
+          <TouchableOpacity
+            style={styles.headerIcon}
+            onPress={() => {
+              if (Platform.OS === "web") {
+                window.location.reload();
+              } else {
+                router.replace("/settings" as any);
+              }
+            }}
+          >
+            <Ionicons name="refresh-outline" size={18} color="#737373" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerIcon} onPress={() => router.push("/settings" as any)}>
+            <Ionicons name="settings-outline" size={18} color="#737373" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerIcon} onPress={logout}>
+            <Ionicons name="log-out-outline" size={18} color="#FF6B6B" />
+          </TouchableOpacity>
+        </View>
       </View>
 
+      {/* Desktop: (removed top-right) — now placed under settings content */}
+
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Audio Einstellungen</Text>
-          
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>EBU R128 Normalisierung</Text>
-              <Text style={styles.settingDescription}>
-                Hebt leise Songs auf Broadcast-Standard an (-16 LUFS)
-              </Text>
-            </View>
-            <Switch
-              value={monotoneEnabled}
-              onValueChange={handleToggleMonotone}
-              disabled={saving}
-              trackColor={{ false: "#3a3a3a", true: "#4CAF50" }}
-              thumbColor={monotoneEnabled ? "#ffffff" : "#dddddd"}
-              ios_backgroundColor="#3a3a3a"
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Laute Songs reduzieren</Text>
-              <Text style={styles.settingDescription}>
-                Reduziert auch laute Songs auf -14 LUFS (benötigt EBU R128)
-              </Text>
-            </View>
-            <Switch
-              value={monotoneReduceLoud}
-              onValueChange={handleToggleReduceLoud}
-              disabled={saving || !monotoneEnabled}
-              trackColor={{ false: "#3a3a3a", true: "#FF9800" }}
-              thumbColor={monotoneReduceLoud ? "#ffffff" : "#dddddd"}
-              ios_backgroundColor="#3a3a3a"
-            />
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Playlist Einstellungen</Text>
-          
-          <View style={styles.settingCard}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Mindest Künstler-Abstand</Text>
-              <Text style={styles.settingDescription}>
-                Verhindert, dass derselbe Künstler zu oft hintereinander spielt
-              </Text>
-            </View>
+        <View style={[styles.sectionsContainer, { flexDirection: isDesktop ? "row" : "column", justifyContent: isDesktop ? "center" : "flex-start", gap: isDesktop ? 48 : 0 }]}>
+          {/* Audio Einstellungen */}
+          <View style={[styles.section, isDesktop && { flex: 1, maxWidth: 400 }]}>
+            <Text style={styles.sectionTitle}>Audio Einstellungen</Text>
             
-            <View style={styles.sliderContainer}>
-              <View style={styles.sliderHeader}>
-                <Text style={styles.sliderValue}>
-                  {minArtistDistance === 0 ? "Aus" : `${minArtistDistance} Songs`}
+            <View style={styles.settingRow}>
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingLabel}>EBU R128 Normalisierung</Text>
+                <Text style={styles.settingDescription}>
+                  Hebt leise Songs auf Broadcast-Standard an (-16 LUFS)
                 </Text>
               </View>
-              <Slider
-                style={styles.slider}
-                minimumValue={0}
-                maximumValue={15}
-                step={1}
-                value={minArtistDistance}
-                onValueChange={handleArtistDistanceChange}
-                onSlidingComplete={handleArtistDistanceComplete}
+              <Switch
+                value={monotoneEnabled}
+                onValueChange={handleToggleMonotone}
                 disabled={saving}
-                minimumTrackTintColor="#2196F3"
-                maximumTrackTintColor="#3a3a3a"
-                thumbTintColor="#ffffff"
+                trackColor={{ false: "#3a3a3a", true: "#4CAF50" }}
+                thumbColor={monotoneEnabled ? "#ffffff" : "#dddddd"}
+                ios_backgroundColor="#3a3a3a"
               />
-              <View style={styles.sliderLabels}>
-                <Text style={styles.sliderLabelText}>0</Text>
-                <Text style={styles.sliderLabelText}>15</Text>
+            </View>
+
+            <View style={styles.settingRow}>
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingLabel}>Laute Songs reduzieren</Text>
+                <Text style={styles.settingDescription}>
+                  Reduziert auch laute Songs auf -14 LUFS (benötigt EBU R128)
+                </Text>
+              </View>
+              <Switch
+                value={monotoneReduceLoud}
+                onValueChange={handleToggleReduceLoud}
+                disabled={saving || !monotoneEnabled}
+                trackColor={{ false: "#3a3a3a", true: "#4CAF50" }}
+                thumbColor={monotoneReduceLoud ? "#ffffff" : "#dddddd"}
+                ios_backgroundColor="#3a3a3a"
+              />
+            </View>
+          </View>
+
+          {/* Playlist Einstellungen */}
+          <View style={[styles.section, isDesktop && { flex: 1, maxWidth: 400 }]}>
+            <Text style={styles.sectionTitle}>Playlist Einstellungen</Text>
+            
+            <View style={styles.settingCard}>
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingLabel}>Minimaler Abstand zwischen Künstlern</Text>
+                <Text style={styles.settingDescription}>
+                  Mindestanzahl an Songs zwischen zwei Titeln desselben Künstlers
+                </Text>
+              </View>
+              
+              <View style={styles.sliderContainer}>
+                <Slider
+                  style={styles.slider}
+                  minimumValue={0}
+                  maximumValue={15}
+                  step={1}
+                  value={minArtistDistance}
+                  onValueChange={handleArtistDistanceChange}
+                  onSlidingComplete={handleArtistDistanceComplete}
+                  disabled={saving}
+                  minimumTrackTintColor="#7C4DFF"
+                  maximumTrackTintColor="#3a3a3a"
+                  thumbTintColor="#7C4DFF"
+                />
+                <View style={styles.sliderLabels}>
+                  <Text style={styles.sliderLabelText}>0</Text>
+                  <Text style={styles.sliderValue}>
+                    {minArtistDistance === 0 ? "Aus" : `${minArtistDistance} Songs`}
+                  </Text>
+                  <Text style={styles.sliderLabelText}>15</Text>
+                </View>
               </View>
             </View>
           </View>
         </View>
 
-        <View style={styles.infoBox}>
-          <Text style={styles.infoTitle}>ℹ️ Über EBU R128 Normalisierung</Text>
-          <Text style={styles.infoText}>
-            Diese Funktion nutzt den professionellen Broadcasting-Standard EBU R128 (LUFS - Loudness Units relative to Full Scale).{"\n\n"}
-            Songs werden auf -14 LUFS normalisiert, wie bei Spotify, YouTube und echten Radio-Services. LUFS berücksichtigt die menschliche Hörwahrnehmung und misst perzeptuelle Lautstärke.{"\n\n"}
-            <Text style={{ fontWeight: 'bold' }}>Standard-Modus:</Text> Nur leise Songs werden lauter.{"\n"}
-            <Text style={{ fontWeight: 'bold' }}>Erweiterter Modus:</Text> Alle Songs auf gleiche Lautstärke.{"\n\n"}
-            Ergebnis: Professionelle Broadcast-Qualität mit True Peak Limiting (kein Clipping).
-          </Text>
-        </View>
-
-        <View style={[styles.infoBox, { borderLeftColor: "#2196F3" }]}>
-          <Text style={styles.infoTitle}>ℹ️ Über Künstler-Abstand</Text>
-          <Text style={styles.infoText}>
-            Der Smart Shuffle Algorithmus sorgt dafür, dass derselbe Künstler nicht zu häufig hintereinander gespielt wird.{"\n\n"}
-            <Text style={{ fontWeight: 'bold' }}>Beispiel (5 Songs):</Text> Nach einem Song von Artist A werden mindestens 5 andere Songs gespielt, bevor wieder ein Song von A kommt.{"\n\n"}
-            <Text style={{ fontWeight: 'bold' }}>Künstler-Erkennung:</Text> Der Algorithmus erkennt Variationen wie "Artist feat. Someone" als denselben Künstler.{"\n\n"}
-            <Text style={{ fontWeight: 'bold' }}>Wert 0:</Text> Funktion ist deaktiviert, normaler Shuffle wird verwendet.
-          </Text>
-        </View>
+        {/* Mobile: Back button removed from ScrollView to keep it fixed at bottom */}
       </ScrollView>
+
+      {/* Mobile: Back button fixed at bottom center (outside ScrollView) */}
+      {!isDesktop && (
+        <View style={styles.mobileBackButtonContainer}>
+          <TouchableOpacity style={styles.mobileBackButton} onPress={() => router.push("/player" as any)}>
+            <Text style={styles.mobileBackButtonText}>Zurück</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Desktop: Back button centered under settings */}
+      {isDesktop && (
+        <View style={styles.desktopBackButtonContainer}>
+          <TouchableOpacity style={styles.desktopBackButton} onPress={() => router.push("/player" as any)}>
+            <Text style={styles.desktopBackButtonText}>Zurück</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Footer (copied from player) - only on desktop */}
+      {isDesktop && (
+        <View style={[styles.footer, styles.footerDesktop]}>
+          <View style={styles.footerLeft}>
+            <TouchableOpacity onPress={() => router.push("/impressum" as any)}>
+              <Text style={styles.footerLink}>Impressum</Text>
+            </TouchableOpacity>
+            <Text style={styles.footerDivider}>/</Text>
+            <TouchableOpacity onPress={() => router.push("/datenschutz" as any)}>
+              <Text style={styles.footerLink}>Datenschutz</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.footerVersion}>v1.0.0</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
