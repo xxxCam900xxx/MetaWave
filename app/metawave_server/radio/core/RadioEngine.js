@@ -55,7 +55,8 @@ export class RadioEngine extends EventEmitter {
           author: s.author || "",
           cover: s.cover || "",
           duration: s.duration || 0,
-          lufs: s.lufs || null  // LUFS Daten für Normalisierung
+          // Normalize LUFS: only keep if input_i is numeric, else null
+          lufs: (s.lufs && typeof s.lufs.input_i === 'number') ? s.lufs : null
         }));
     } catch (err) {
       console.error("Fehler beim Laden der Metadaten:", err);
@@ -164,33 +165,57 @@ export class RadioEngine extends EventEmitter {
     const getMultiplier = () => {
       const vol = this.currentVolumeMultiplier ?? (this.volumePercent / 100);
       let monoMult = 1;
-      if (this.monotoneEnabled && song.lufs) {
+
+      // Read LUFS safely; if missing or invalid, skip normalization
+      const currentLUFS = (song.lufs && typeof song.lufs.input_i === 'number') ? song.lufs.input_i : null;
+      if (this.monotoneEnabled && currentLUFS !== null) {
         const targetLUFS = -14.0;
-        const currentLUFS = song.lufs.input_i;
         let gainDb = targetLUFS - currentLUFS; // positive => boost, negative => reduce
         if (gainDb < 0 && !this.monotoneReduceLoud) gainDb = 0;
         monoMult = Math.pow(10, gainDb / 20);
       }
+
+      if (!isFinite(monoMult) || monoMult <= 0) monoMult = 1;
       return vol * monoMult;
     };
 
-    // LUFS Status einmal pro Song loggen
-    if (this.monotoneEnabled && song.lufs) {
+    // LUFS Status einmal pro Song loggen (sicher auf missing values prüfen)
+    if (this.monotoneEnabled) {
+      const currentLUFS = (song.lufs && typeof song.lufs.input_i === 'number') ? song.lufs.input_i : null;
       const targetLUFS = -14.0;
-      const currentLUFS = song.lufs.input_i;
-      let gainDb = targetLUFS - currentLUFS;
-      if (gainDb < 0 && !this.monotoneReduceLoud) gainDb = 0;
-      
-      if (gainDb !== 0) {
-        console.log(`[LUFS] ${song.title}: ${currentLUFS.toFixed(1)} LUFS → Gain: ${gainDb > 0 ? '+' : ''}${gainDb.toFixed(1)} dB`);
+
+      if (currentLUFS !== null) {
+        let gainDb = targetLUFS - currentLUFS;
+        if (gainDb < 0 && !this.monotoneReduceLoud) gainDb = 0;
+
+        if (gainDb !== 0) {
+          console.log(`[LUFS] ${song.title}: ${currentLUFS.toFixed(1)} LUFS → Gain: ${gainDb > 0 ? '+' : ''}${gainDb.toFixed(1)} dB`);
+        } else {
+          console.log(`[LUFS] ${song.title}: ${currentLUFS.toFixed(1)} LUFS → Already at target, no gain needed`);
+        }
       } else {
-        console.log(`[LUFS] ${song.title}: ${currentLUFS.toFixed(1)} LUFS → Already at target, no gain needed`);
+        console.warn(`[LUFS] ${song.title}: No LUFS data - normalization skipped`);
       }
-    } else if (this.monotoneEnabled && !song.lufs) {
-      console.warn(`[LUFS] ${song.title}: No LUFS data - normalization skipped`);
     }
 
     const gainTransform = new GainTransform(getMultiplier);
+
+    // Robust error handling for the gain transform: log and terminate current ffmpeg processes
+    gainTransform.on('error', (err) => {
+      console.error('[GainTransform Error]', err);
+      try { if (decoder) decoder.kill('SIGKILL'); } catch (e) {}
+      try { if (encoder) encoder.kill('SIGKILL'); } catch (e) {}
+    });
+
+    // Also listen for decoder/encoder error events to avoid uncaught exceptions
+    decoder.on('error', (err) => {
+      console.error('[Decoder Error]', err);
+      try { if (encoder) encoder.kill('SIGKILL'); } catch (e) {}
+    });
+    encoder.on('error', (err) => {
+      console.error('[Encoder Error]', err);
+      try { if (decoder) decoder.kill('SIGKILL'); } catch (e) {}
+    });
 
     // Pipe decoder -> gainTransform -> encoder
     decoder.stdout.pipe(gainTransform).pipe(encoder.stdin);
