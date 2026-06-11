@@ -13,6 +13,8 @@ tags:
     description: Endpunkte für Login und Token-Validierung
   - name: Radio
     description: Live-Radio-Stream und Steuerung
+  - name: Playlist Manager
+    description: YouTube Playlists verwalten (hinzufügen, aktivieren/deaktivieren, löschen)
   - name: Notification - Signal
     description: Signal-spezifische Notification-Routen (invite/leave)
   - name: Notification - Email
@@ -196,6 +198,29 @@ components:
         message:
           type: string
           example: Signal Notification job executed
+
+    Playlist:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Meine Lieblingsmusik
+        url:
+          type: string
+          format: uri
+          example: https://www.youtube.com/playlist?list=PLxxx
+        is_active:
+          type: boolean
+          example: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     VolumeResponse:
       type: object
@@ -850,3 +875,111 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RunJobResponse"
+  /playlist:
+    get:
+      tags:
+        - Playlist Manager
+      summary: Alle Playlists abrufen
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Liste aller Playlists
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  playlists:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Playlist"
+        "401":
+          description: Nicht autorisiert
+    post:
+      tags:
+        - Playlist Manager
+      summary: Neue Playlist hinzuf�gen
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, url]
+              properties:
+                name:
+                  type: string
+                  example: Meine Lieblingsmusik
+                url:
+                  type: string
+                  format: uri
+                  example: https://www.youtube.com/playlist?list=PLxxx
+      responses:
+        "201":
+          description: Playlist erfolgreich hinzugef�gt
+        "400":
+          description: Ung�ltige Eingabe (name/url fehlt oder URL ung�ltig)
+        "409":
+          description: Playlist URL existiert bereits
+        "401":
+          description: Nicht autorisiert
+
+  /playlist/{id}:
+    put:
+      tags:
+        - Playlist Manager
+      summary: Playlist aktualisieren (Name, URL oder Aktiv-Status)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                url:
+                  type: string
+                  format: uri
+                is_active:
+                  type: boolean
+      responses:
+        "200":
+          description: Playlist aktualisiert
+        "404":
+          description: Playlist nicht gefunden
+        "401":
+          description: Nicht autorisiert
+    delete:
+      tags:
+        - Playlist Manager
+      summary: Playlist l�schen
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Playlist gel�scht
+        "404":
+          description: Playlist nicht gefunden
+        "401":
+          description: Nicht autorisiert

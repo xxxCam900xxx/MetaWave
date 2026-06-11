@@ -287,6 +287,19 @@ export default function SettingsScreen() {
                 </View>
               </View>
             </View>
+
+            <TouchableOpacity
+              style={[styles.settingRow, { marginTop: 4 }]}
+              onPress={() => router.push("/playlists" as any)}
+            >
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingLabel}>Playlist Manager</Text>
+                <Text style={styles.settingDescription}>
+                  YouTube Playlists verwalten, aktivieren oder deaktivieren
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#737373" />
+            </TouchableOpacity>
           </View>
         </View>
 

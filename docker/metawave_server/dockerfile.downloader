@@ -12,14 +12,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/metawave_server/downloader/*.py .
 
 # Optionale Cookie-Datei für authentifizierte YouTube-Requests.
-# Wenn in der Build-Context-Datei
-#   app/metawave_server/downloader/www.youtube.com_cookies.txt
-# vorhanden ist, wird sie ins Image kopiert und als Standard für
-# YT_COOKIES gesetzt.
 COPY app/metawave_server/downloader/www.youtube.com_cookies.txt /cookies/www.youtube.com_cookies.txt
 ENV YT_COOKIES=/cookies/www.youtube.com_cookies.txt
+
+# Datenbankverbindung (Werte werden via env_file aus .env gesetzt)
+ENV DB_HOST=database
+ENV DB_PORT=3306
+ENV DB_NAME=database_metawave
+ENV DB_USER=metawave_user
+ENV DB_PASS=
 
 VOLUME ["/songs"]
 
 ENV PYTHONUNBUFFERED=1
-CMD ["python", "-u", "update_playlist.py"]
+CMD ["python", "-u", "sync_playlist.py"]

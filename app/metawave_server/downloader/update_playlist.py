@@ -6,6 +6,8 @@ import time
 import re
 from pathlib import Path
 
+# PLAYLIST_URL wird nicht mehr verwendet – Playlists werden aus der Datenbank geladen.
+# Die Variable bleibt für ältere Skripte als leerer Fallback erhalten.
 PLAYLIST_URL = os.environ.get("PLAYLIST_URL", "")
 
 # Basisverzeichnisse und Dateien
