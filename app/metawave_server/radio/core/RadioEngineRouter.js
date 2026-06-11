@@ -1,4 +1,6 @@
 import express from "express";
+import fs from "fs";
+import path from "path";
 import { radio } from "./RadioEngine.js";
 import { authMiddleware } from "../middleware/AuthLogic.js";
 
@@ -10,11 +12,62 @@ const router = express.Router();
 
 router.use(authMiddleware);
 
-// GET /stream
-router.get("/", (req, res) => {
-  res.setHeader("Content-Type", "audio/mpeg");
-  res.setHeader("Cache-Control", "no-cache");
-  radio.addClient(res);
+// GET /stream/file/:filename
+// Serves an individual MP3 file from the songs volume.
+// Clients use this endpoint to load the current and next song.
+router.get("/file/:filename", (req, res) => {
+  const filePath = radio.getSongFilePath(req.params.filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ status: 404, message: "File not found" });
+  }
+  const stat = fs.statSync(filePath);
+  const range = req.headers.range;
+
+  // Support HTTP Range requests (needed for seek / preloading on some clients)
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end   = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+    if (start >= stat.size) {
+      return res.status(416).setHeader("Content-Range", `bytes */${stat.size}`).end();
+    }
+    const chunkSize = end - start + 1;
+    res.writeHead(206, {
+      "Content-Range":  `bytes ${start}-${end}/${stat.size}`,
+      "Accept-Ranges":  "bytes",
+      "Content-Length": chunkSize,
+      "Content-Type":   "audio/mpeg",
+      "Cache-Control":  "no-cache",
+    });
+    fs.createReadStream(filePath, { start, end }).pipe(res);
+  } else {
+    res.writeHead(200, {
+      "Content-Length": stat.size,
+      "Content-Type":   "audio/mpeg",
+      "Accept-Ranges":  "bytes",
+      "Cache-Control":  "no-cache",
+    });
+    fs.createReadStream(filePath).pipe(res);
+  }
+});
+
+// GET /stream/prefetch  – returns next song metadata so the client can preload
+router.get("/prefetch", (req, res) => {
+  const nextIndex = (radio.currentIndex + 1) % radio.queue.length;
+  const song = radio.queue[nextIndex];
+  if (!song) return res.json({ status: 200, next: null });
+  res.setHeader("Cache-Control", "public, max-age=2");
+  res.json({
+    status: 200,
+    next: {
+      filename: song.filename,
+      title:    song.title,
+      author:   song.author,
+      cover:    song.cover,
+      duration: song.duration,
+      index:    nextIndex,
+    },
+  });
 });
 
 // Metadata endpoints
@@ -33,6 +86,7 @@ router.get("/control/skip", (req, res) => { radio.skip(); res.json({ status: 200
 router.get("/control/previous", (req, res) => { radio.previous(); res.json({ status: 200, message: "Previous song will be played" }); });
 router.get("/control/shuffle", (req, res) => { radio.shuffleRemaining(); res.json({ status: 200, message: "Queue shuffled" }); });
 router.get("/control/jumpto/:index", (req, res) => { radio.jumpto(req.params.index); res.json({ status: 200, message: `Jumped to Song Index ${req.params.index}` }); });
+router.get("/control/move/:from/:to", (req, res) => { radio.moveInQueue(req.params.from, req.params.to); res.json({ status: 200, message: `Moved queue item from ${req.params.from} to ${req.params.to}` }); });
 
 // Volume control endpoints
 router.get("/control/sound/:percentage", (req, res) => {

@@ -8,6 +8,7 @@ import {
 } from "./PlaylistLogic.js";
 
 const router = express.Router();
+const DOWNLOADER_API = "http://downloader:5001";
 
 router.use(authMiddleware);
 
@@ -71,6 +72,35 @@ router.delete("/:id", async (req, res) => {
       return res.status(404).json({ error: "Playlist not found" });
     console.error("PlaylistRouter DELETE /:id:", err);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /playlist/sync  – triggers a full sync on the downloader service
+router.post("/sync", async (req, res) => {
+  try {
+    const response = await fetch(`${DOWNLOADER_API}/sync`, { method: "POST" });
+    const json = await response.json();
+    if (response.status === 409) {
+      return res.status(409).json({ status: "already_running", step: json.step });
+    }
+    return res.status(202).json({ status: "started" });
+  } catch (err) {
+    console.error("PlaylistRouter POST /sync:", err);
+    return res.status(503).json({ error: "Downloader nicht erreichbar. Ist der Dienst gestartet?" });
+  }
+});
+
+// GET /playlist/sync/status  – proxies the downloader status
+router.get("/sync/status", async (req, res) => {
+  try {
+    const response = await fetch(`${DOWNLOADER_API}/sync/status`);
+    const json = await response.json();
+    return res.json(json);
+  } catch (err) {
+    return res.status(503).json({
+      running: false,
+      error: "Downloader nicht erreichbar.",
+    });
   }
 });
 

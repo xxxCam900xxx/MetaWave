@@ -200,4 +200,73 @@ export const playlistsStyles = StyleSheet.create<any>({
     color: colors.textSecondary,
     lineHeight: 20,
   },
+  // ── Sync section ──────────────────────────────────────────────────────────
+  syncCard: {
+    backgroundColor: colors.backgroundCard,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderLeftWidth: 3,
+    borderLeftColor: "#4A90E2",
+  },
+  syncCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  syncCardTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: colors.textPrimary,
+  },
+  syncButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#4A90E2",
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    gap: 6,
+  },
+  syncButtonRunning: {
+    opacity: 0.6,
+  },
+  syncButtonText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  syncStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  syncStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  syncStatusText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    flex: 1,
+  },
+  syncLogBox: {
+    backgroundColor: colors.background,
+    borderRadius: 6,
+    padding: 10,
+    marginTop: 8,
+    maxHeight: 160,
+  },
+  syncLogLine: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    fontFamily: "monospace",
+    lineHeight: 16,
+  },
+  syncLogLineError: {
+    color: "#FF6B6B",
+  },
 });

@@ -25,4 +25,4 @@ ENV DB_PASS=
 VOLUME ["/songs"]
 
 ENV PYTHONUNBUFFERED=1
-CMD ["python", "-u", "sync_playlist.py"]
+CMD ["python", "-u", "api_server.py"]

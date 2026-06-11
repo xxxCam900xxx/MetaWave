@@ -25,6 +25,15 @@ interface Playlist {
   is_active: boolean | number;
 }
 
+interface SyncStatus {
+  running: boolean;
+  step: string | null;
+  lastRun: number | null;
+  lastRunFormatted: string | null;
+  lastError: string | null;
+  log: string[];
+}
+
 export default function PlaylistsScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
@@ -37,10 +46,74 @@ export default function PlaylistsScreen() {
   const [newName, setNewName] = useState("");
   const [newUrl, setNewUrl] = useState("");
 
+  // Sync state
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncTriggering, setSyncTriggering] = useState(false);
+  const syncPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const logout = async () => {
     await AsyncStorage.removeItem("authToken");
     router.replace("/");
   };
+
+  // ─── Sync helpers ───────────────────────────────────────────────────────────
+
+  const fetchSyncStatus = useCallback(async () => {
+    if (!tokenRef.current) return;
+    try {
+      const res = await fetch(`${API_BASE}/playlist/sync/status`, {
+        headers: { Authorization: `Bearer ${tokenRef.current}` },
+      });
+      if (res.ok) {
+        const json: SyncStatus = await res.json();
+        setSyncStatus(json);
+        // Stop polling when no longer running
+        if (!json.running && syncPollRef.current) {
+          clearInterval(syncPollRef.current);
+          syncPollRef.current = null;
+        }
+      }
+    } catch {
+      // non-fatal
+    }
+  }, []);
+
+  const startSyncPolling = useCallback(() => {
+    if (syncPollRef.current) return; // already polling
+    syncPollRef.current = setInterval(fetchSyncStatus, 2500);
+  }, [fetchSyncStatus]);
+
+  const triggerSync = async () => {
+    if (!tokenRef.current || syncTriggering || syncStatus?.running) return;
+    setSyncTriggering(true);
+    try {
+      const res = await fetch(`${API_BASE}/playlist/sync`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tokenRef.current}` },
+      });
+      if (res.status === 409) {
+        // Already running — just start polling
+      } else if (!res.ok) {
+        const json = await res.json();
+        Alert.alert("Fehler", json.error ?? "Sync konnte nicht gestartet werden.");
+        return;
+      }
+      // Start polling for status updates
+      await fetchSyncStatus();
+      startSyncPolling();
+    } catch {
+      Alert.alert("Fehler", "Verbindung zum Server fehlgeschlagen.");
+    } finally {
+      setSyncTriggering(false);
+    }
+  };
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (syncPollRef.current) clearInterval(syncPollRef.current);
+    };
+  }, []);
 
   const loadPlaylists = useCallback(async () => {
     if (!tokenRef.current) return;
@@ -72,7 +145,7 @@ export default function PlaylistsScreen() {
           return;
         }
         tokenRef.current = stored;
-        await loadPlaylists();
+        await Promise.all([loadPlaylists(), fetchSyncStatus()]);
       } catch {
         Alert.alert("Fehler", "Playlists konnten nicht geladen werden.");
       } finally {
@@ -80,7 +153,7 @@ export default function PlaylistsScreen() {
       }
     };
     init();
-  }, [loadPlaylists, router]);
+  }, [loadPlaylists, fetchSyncStatus, router]);
 
   const handleAdd = async () => {
     const name = newName.trim();
@@ -229,6 +302,72 @@ export default function PlaylistsScreen() {
             Aktive Playlists werden beim nächsten monatlichen Downloader-Lauf synchronisiert.
             Inaktive Playlists werden ignoriert.
           </Text>
+        </View>
+
+        {/* Sync card */}
+        <View style={styles.syncCard}>
+          <View style={styles.syncCardHeader}>
+            <Text style={styles.syncCardTitle}>Songs synchronisieren</Text>
+            <TouchableOpacity
+              style={[styles.syncButton, (syncStatus?.running || syncTriggering) && styles.syncButtonRunning]}
+              onPress={triggerSync}
+              disabled={syncStatus?.running || syncTriggering}
+            >
+              {syncStatus?.running || syncTriggering ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="sync-outline" size={16} color="#fff" />
+              )}
+              <Text style={styles.syncButtonText}>
+                {syncStatus?.running ? "Läuft…" : "Jetzt synchronisieren"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Status row */}
+          {syncStatus && (
+            <View style={styles.syncStatusRow}>
+              <View style={[
+                styles.syncStatusDot,
+                {
+                  backgroundColor: syncStatus.running
+                    ? "#f5a623"
+                    : syncStatus.lastError
+                    ? "#FF6B6B"
+                    : syncStatus.step === "done"
+                    ? "#4CAF50"
+                    : "#737373",
+                },
+              ]} />
+              <Text style={styles.syncStatusText}>
+                {syncStatus.running
+                  ? `Schritt: ${syncStatus.step ?? "…"}`
+                  : syncStatus.lastError
+                  ? `Fehler: ${syncStatus.lastError}`
+                  : syncStatus.lastRunFormatted
+                  ? `Zuletzt synchronisiert: ${syncStatus.lastRunFormatted}`
+                  : "Noch nicht synchronisiert"}
+              </Text>
+            </View>
+          )}
+
+          {/* Log output (only while running or after error) */}
+          {syncStatus && (syncStatus.running || syncStatus.lastError) && syncStatus.log.length > 0 && (
+            <ScrollView style={styles.syncLogBox} nestedScrollEnabled>
+              {syncStatus.log.slice(-20).map((line, i) => (
+                <Text
+                  key={i}
+                  style={[
+                    styles.syncLogLine,
+                    (line.includes("FEHLER") || line.includes("Fehler")) && styles.syncLogLineError,
+                  ]}
+                  selectable={false}
+                >
+                  {line}
+                </Text>
+              ))}
+            </ScrollView>
+          )}
         </View>
 
         {/* Add new playlist */}

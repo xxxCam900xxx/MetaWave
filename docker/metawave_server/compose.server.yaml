@@ -10,7 +10,10 @@ services:
       - ../metawave_server/.env
     environment:
       - PYTHONUNBUFFERED=1
-    restart: "no"
+    depends_on:
+      database:
+        condition: service_healthy
+    restart: unless-stopped
   radio:
     container_name: server
     build:

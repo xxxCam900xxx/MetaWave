@@ -181,7 +181,7 @@ export default function Index() {
             <Text style={styles.footerLink}>Datenschutz</Text>
           </TouchableOpacity>
         </View>
-        <Text style={styles.footerVersion}>v1.0.0</Text>
+        <Text style={styles.footerVersion}>v4.0.0</Text>
       </View>
     </SafeAreaView>
   );
