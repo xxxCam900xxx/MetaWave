@@ -133,9 +133,11 @@ export default function PlayerScreen() {
   const [loading, setLoading] = useState(true);
   const [playbackLoading, setPlaybackLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const isPlayingRef = useRef<boolean>(false);
   const [volume, setVolume] = useState<number>(100);
   // Keep ref in sync so async callbacks (loadCurrentSong, changeVolume) always see current value
   const setVolumeState = (v: number) => { volumeRef.current = v; setVolume(v); };
+  const setIsPlayingState = (v: boolean) => { isPlayingRef.current = v; setIsPlaying(v); };
   const [error, setError] = useState<string | null>(null);
   const [localElapsedTime, setLocalElapsedTime] = useState<number>(0);
   const soundRef = useRef<Audio.Sound | null>(null);
@@ -144,6 +146,24 @@ export default function PlayerScreen() {
   // WS message handlers (e.g. queueUpdated) always read the latest meta without stale closures.
   const metaRef = useRef<StreamMeta | null>(null);
   const setMetaAndRef = (m: StreamMeta | null) => { metaRef.current = m; setMeta(m); };
+  const getEffectiveVolume = React.useCallback((m: StreamMeta | null = metaRef.current) => {
+    const rawVolume = Number(volumeRef.current);
+    const baseVol = Math.min(1, Math.max(0, (Number.isFinite(rawVolume) ? rawVolume : 100) / 100));
+    if (!m?.monotoneEnabled || typeof m.lufsGainDb !== "number" || m.lufsGainDb === 0) {
+      return baseVol;
+    }
+
+    const gainMult = Math.pow(10, m.lufsGainDb / 20);
+    if (!Number.isFinite(gainMult) || gainMult <= 0) return baseVol;
+
+    // User volume is the master volume. LUFS may reduce loud tracks, but must
+    // never boost the actual Expo volume above the selected percentage.
+    return Math.min(baseVol, Math.max(0, baseVol * gainMult));
+  }, []);
+  const applyCurrentVolume = React.useCallback(async (sound: Audio.Sound | null, m?: StreamMeta | null) => {
+    if (!sound) return;
+    await sound.setVolumeAsync(getEffectiveVolume(m ?? metaRef.current)).catch(() => undefined);
+  }, [getEffectiveVolume]);
   const tokenRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const wsReconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -161,6 +181,9 @@ export default function PlayerScreen() {
   const serverElapsedRef = useRef<number>(0);  // Letzte elapsed time vom Server
   const serverTimestampRef = useRef<number>(Date.now());  // Zeitpunkt des letzten Updates
   const pendingControlRef = useRef<boolean>(false);
+  const trackLoadSeqRef = useRef<number>(0);
+  const lastLoadedTrackKeyRef = useRef<string>("");
+  const hasStartedPlaybackRef = useRef<boolean>(false);
 
   // Drag-to-reorder state
   const [dragFromIdx, setDragFromIdx] = useState<number | null>(null);
@@ -396,6 +419,7 @@ export default function PlayerScreen() {
       lufsGainDb: dm.lufsGainDb ?? 0,
       monotoneEnabled: dm.monotoneEnabled ?? false,
     };
+    const shouldLoadAudio = Boolean(soundRef.current || hasStartedPlaybackRef.current);
 
     // Set meta atomically — update ref FIRST so subsequent applyQueueFromServer calls
     // (e.g. from a queueUpdated WS message arriving before React state is committed)
@@ -404,7 +428,7 @@ export default function PlayerScreen() {
 
     // Timer and play state — update via centralized helper to avoid partial updates/flicker
     updateServerTime(newElapsed, newDuration);
-    setIsPlaying(true);
+    setIsPlayingState(true);
 
     // record last update time for fallback/sync checks immediately so syncCheck won't override
     lastMetaUpdateRef.current = Date.now();
@@ -418,22 +442,40 @@ export default function PlayerScreen() {
     // clear any pending control optimistic state
     pendingControlRef.current = false;
 
+    const trackKey = `${freshMeta.filename || ""}:${typeof freshMeta.index === "number" ? freshMeta.index : ""}`;
+
     // Load the new song file if we're in playing state
     // We check soundRef to know if user ever pressed Play
-    if (soundRef.current || isPlaying) {
+    if (soundRef.current && lastLoadedTrackKeyRef.current === trackKey) {
+      applyCurrentVolume(soundRef.current, freshMeta);
+    } else if (shouldLoadAudio) {
+      const loadSeq = ++trackLoadSeqRef.current;
       // Small delay to let meta state settle before loading
       setTimeout(() => {
         if (!tokenRef.current || !dm.filename) return;
         const fileUrl = `${API_BASE}/stream/file/${encodeURIComponent(dm.filename)}?token=${encodeURIComponent(tokenRef.current!)}`;
-        soundRef.current?.unloadAsync().catch(() => undefined).then(async () => {
+        const previousSound = soundRef.current;
+        if (previousSound) soundRef.current = null;
+        Promise.resolve(previousSound?.unloadAsync().catch(() => undefined)).then(async () => {
           try {
             const { sound } = await Audio.Sound.createAsync(
               { uri: fileUrl },
-              { shouldPlay: true, positionMillis: (newElapsed || 0) * 1000, progressUpdateIntervalMillis: 500 }
+              {
+                shouldPlay: true,
+                positionMillis: (newElapsed || 0) * 1000,
+                progressUpdateIntervalMillis: 500,
+                volume: getEffectiveVolume(freshMeta),
+              }
             );
+            if (loadSeq !== trackLoadSeqRef.current) {
+              await sound.unloadAsync().catch(() => undefined);
+              return;
+            }
             soundRef.current = sound;
+            lastLoadedTrackKeyRef.current = trackKey;
             sound.setOnPlaybackStatusUpdate(handleStatusUpdate);
-            setIsPlaying(true);
+            await applyCurrentVolume(sound, freshMeta);
+            setIsPlayingState(true);
             setError(null);
           } catch (e) {
             console.error("Track switch load error:", e);
@@ -452,7 +494,7 @@ export default function PlayerScreen() {
     }
 
     return newVer;
-  }, [applyQueueFromServer, queue, isPlaying]);
+  }, [applyCurrentVolume, applyQueueFromServer, getEffectiveVolume, queue, updateServerTime]);
 
   useEffect(() => {
     const init = async () => {
@@ -547,7 +589,11 @@ export default function PlayerScreen() {
       }
       if (soundRef.current) {
         soundRef.current.unloadAsync().catch(() => undefined);
+        soundRef.current = null;
       }
+      hasStartedPlaybackRef.current = false;
+      lastLoadedTrackKeyRef.current = "";
+      trackLoadSeqRef.current += 1;
     };
   }, []);
 
@@ -590,18 +636,12 @@ export default function PlayerScreen() {
           if (data?.type === "volumeChanged" && typeof data.volume === "number") {
             const newVol = Number(data.volume);
             setVolumeState(newVol);
-            // Apply to local sound immediately
-            const clamped = Math.min(1, Math.max(0, newVol / 100));
-            if (soundRef.current) soundRef.current.setVolumeAsync(clamped).catch(() => undefined);
+            applyCurrentVolume(soundRef.current);
             return;
           }
 
           if (data?.type === "settingsUpdated" && data.settings) {
-            // When monotone settings change, re-apply volume+gain to the current sound
-            if (soundRef.current) {
-              const baseVol = Math.min(1, Math.max(0, (volumeRef.current || 100) / 100));
-              soundRef.current.setVolumeAsync(baseVol).catch(() => undefined);
-            }
+            applyCurrentVolume(soundRef.current);
             return;
           }
         } catch (e) {
@@ -773,15 +813,13 @@ export default function PlayerScreen() {
       return;
     }
 
-    setIsPlaying(status.isPlaying);
+    setIsPlayingState(status.isPlaying);
 
     // Song finished → tell server (fallback for songs without known duration)
     if (status.didJustFinish) {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send("SONG_ENDED");
       }
-      // Also proactively load the next song
-      loadCurrentSong(false);
     }
   };
 
@@ -796,16 +834,21 @@ export default function PlayerScreen() {
    */
   const loadCurrentSong = async (play = false) => {
     if (!tokenRef.current || !meta?.filename) return;
+    if (play) hasStartedPlaybackRef.current = true;
 
     const fileUrl = `${API_BASE}/stream/file/${encodeURIComponent(meta.filename)}?token=${encodeURIComponent(tokenRef.current)}`;
 
     try {
       setPlaybackLoading(true);
+      const loadSeq = ++trackLoadSeqRef.current;
+      const currentMeta = metaRef.current ?? meta;
+      const trackKey = `${currentMeta?.filename || meta.filename}:${typeof currentMeta?.index === "number" ? currentMeta.index : ""}`;
 
       // Unload old sound
       if (soundRef.current) {
         await soundRef.current.unloadAsync().catch(() => undefined);
         soundRef.current = null;
+        lastLoadedTrackKeyRef.current = "";
       }
 
       // If we have a preloaded next-sound for THIS filename, promote it
@@ -817,29 +860,25 @@ export default function PlayerScreen() {
           shouldPlay: play,
           positionMillis: (serverElapsedRef.current || 0) * 1000,
           progressUpdateIntervalMillis: 500,
+          volume: getEffectiveVolume(metaRef.current),
         }
       );
 
+      if (loadSeq !== trackLoadSeqRef.current) {
+        await sound.unloadAsync().catch(() => undefined);
+        return;
+      }
+
       soundRef.current = sound;
+      lastLoadedTrackKeyRef.current = trackKey;
       sound.setOnPlaybackStatusUpdate(handleStatusUpdate);
 
-      // Always apply the current volume to the sound instance.
-      // expo-av volume is 0.0–1.0 (clamped; values above 100% are not supported).
-      // If LUFS normalization is active, combine gain with user volume.
-      {
-        const baseVol = Math.min(1, Math.max(0, (volumeRef.current || 100) / 100));
-        let finalVol = baseVol;
-        if (meta?.monotoneEnabled && typeof meta?.lufsGainDb === "number" && meta.lufsGainDb !== 0) {
-          const gainMult = Math.pow(10, meta.lufsGainDb / 20);
-          finalVol = Math.min(1, Math.max(0, baseVol * gainMult));
-        }
-        await sound.setVolumeAsync(finalVol).catch(() => undefined);
-      }
+      await applyCurrentVolume(sound);
 
       setError(null);
 
       if (play) {
-        setIsPlaying(true);
+        setIsPlayingState(true);
       }
 
       // Preload next song in background
@@ -876,7 +915,7 @@ export default function PlayerScreen() {
 
       const { sound } = await Audio.Sound.createAsync(
         { uri: nextUrl },
-        { shouldPlay: false }
+        { shouldPlay: false, volume: getEffectiveVolume(metaRef.current) }
       );
       nextSoundRef.current = sound;
     } catch {
@@ -1087,11 +1126,8 @@ export default function PlayerScreen() {
     const newV = Math.max(0, Math.min(200, Math.round((volumeRef.current || 0) + delta)));
 
     // Apply immediately to local sound instance (optimistic, before WS echo arrives)
-    const clampedVol = Math.min(1, Math.max(0, newV / 100));
-    if (soundRef.current) {
-      soundRef.current.setVolumeAsync(clampedVol).catch(() => undefined);
-    }
     setVolumeState(newV);
+    applyCurrentVolume(soundRef.current);
 
     // Send via WebSocket — server calls radio.setVolume() which broadcasts
     // volumeChanged to ALL connected clients including this one.
