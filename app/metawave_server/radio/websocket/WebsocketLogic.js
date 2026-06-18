@@ -15,14 +15,10 @@ export function setupWebSocket(server) {
 
     radio.addWSClient(ws);
 
-    // Beim Verbindungsaufbau aktuellen Track + Queue an den Client schicken
+    // Beim Verbindungsaufbau: aktuellen Track + Queue + Volume senden
     try {
-      const meta = radio.getMeta();
-      ws.send(JSON.stringify({ type: "trackChanged", meta }));
-
-      const queueState = radio.getQueueState();
-      ws.send(JSON.stringify({ type: "queueUpdated", queue: queueState }));
-      // Send current volume as part of initial state
+      ws.send(JSON.stringify({ type: "trackChanged", meta: radio.getMeta() }));
+      ws.send(JSON.stringify({ type: "queueUpdated", queue: radio.getQueueState() }));
       ws.send(JSON.stringify({ type: "volumeChanged", volume: radio.volumePercent }));
     } catch (err) {
       console.error("Failed to send initial WS state:", err);
@@ -30,9 +26,14 @@ export function setupWebSocket(server) {
 
     ws.on("message", (msg) => {
       const m = msg.toString();
-      if (m === "SKIP") radio.skip();
-      if (m === "PREVIOUS") radio.previous();
+      if (m === "SKIP")              radio.skip();
+      if (m === "PREVIOUS")          radio.previous();
       if (m === "SHUFFLE_REMAINING") radio.shuffleRemaining();
+      if (m === "SONG_ENDED")        radio.clientReportedSongEnded();
+      if (m.startsWith("VOLUME:")) {
+        const pct = Number(m.split(":")[1]);
+        if (!Number.isNaN(pct)) radio.setVolume(pct); // broadcasts to ALL clients
+      }
       if (m.startsWith("JUMPTO:")) {
         const idx = m.split(":")[1];
         radio.jumpto(idx);

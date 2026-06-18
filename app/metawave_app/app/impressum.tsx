@@ -100,7 +100,7 @@ export default function ImpressumScreen() {
 
       <View style={styles.footer}>
         <Text style={styles.footerText}>Impressum / Datenschutz</Text>
-        <Text style={styles.footerVersion}>v1.0.0</Text>
+        <Text style={styles.footerVersion}>v4.0.0</Text>
       </View>
     </SafeAreaView>
   );

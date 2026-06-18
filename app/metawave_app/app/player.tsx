@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { ActivityIndicator, Alert, Animated, Dimensions, Image, PanResponder, Platform, ScrollView, Text, TouchableOpacity, View, useWindowDimensions, InteractionManager } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -20,6 +20,8 @@ interface StreamMeta {
   index?: number;
   total?: number;
   elapsed?: number;
+  lufsGainDb?: number;
+  monotoneEnabled?: boolean;
 }
 
 interface QueueItem {
@@ -49,6 +51,77 @@ const formatEndClockTime = (remainingSeconds: number): string => {
   return `${hours}:${minutes}`;
 };
 
+// ─── Queue Item Component ───────────────────────────────────────────────────
+
+interface QueueItemRowProps {
+  item: QueueItem;
+  arrayIndex: number;
+  active: boolean;
+  played: boolean;
+  isDragSource: boolean;
+  isDragTarget: boolean;
+  onLayout: (idx: number, y: number) => void;
+  onPress: () => void;
+  onDragStart: (idx: number) => void;
+  onDragMove: (moveY: number) => void;
+  onDragEnd: () => void;
+}
+
+const QueueItemRow: React.FC<QueueItemRowProps> = React.memo(({
+  item, arrayIndex, active, played, isDragSource, isDragTarget,
+  onLayout, onPress, onDragStart, onDragMove, onDragEnd,
+}) => {
+  const gripPanResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onStartShouldSetPanResponderCapture: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponderCapture: () => true,
+    onPanResponderGrant: () => { onDragStart(arrayIndex); },
+    onPanResponderMove: (_, gs) => { onDragMove(gs.moveY); },
+    onPanResponderRelease: () => { onDragEnd(); },
+    onPanResponderTerminate: () => { onDragEnd(); },
+  }), [arrayIndex, onDragStart, onDragMove, onDragEnd]);
+
+  return (
+    <TouchableOpacity
+      onLayout={(e) => onLayout(arrayIndex, e.nativeEvent.layout.y)}
+      style={[
+        styles.queueItem,
+        played && styles.queueItemPlayed,
+        active && styles.queueItemActive,
+        isDragSource && { opacity: 0.35 },
+        isDragTarget && { borderTopWidth: 2, borderTopColor: colors.primary },
+      ]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <View {...gripPanResponder.panHandlers} style={{ paddingHorizontal: 6, paddingVertical: 10, cursor: "grab" } as any}>
+        <FontAwesomeIcon icon={faGripVertical} size={18} color={active ? colors.primary : "#555555"} />
+      </View>
+      {item.cover ? (
+        <Image source={{ uri: item.cover }} style={styles.queueThumbnail} />
+      ) : (
+        <View style={[styles.queueThumbnail, styles.queueThumbnailPlaceholder]}>
+          <Text style={styles.queueThumbnailText} selectable={false}>♪</Text>
+        </View>
+      )}
+      <View style={styles.queueTexts}>
+        <Text style={[styles.queueTitle, active && styles.queueTitleActive]} numberOfLines={1} selectable={false}>
+          {item.title || item.song}
+        </Text>
+        <Text style={styles.queueAuthor} numberOfLines={1} selectable={false}>
+          {item.author || "Unbekannter Künstler"}
+        </Text>
+      </View>
+      <Text style={[styles.queueDuration, active && { color: colors.primary }]} selectable={false}>
+        {item.duration ? `${Math.round(item.duration / 60)}min` : ""}
+      </Text>
+    </TouchableOpacity>
+  );
+});
+
+// ─── Player Screen ──────────────────────────────────────────────────────────
+
 export default function PlayerScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
@@ -60,10 +133,37 @@ export default function PlayerScreen() {
   const [loading, setLoading] = useState(true);
   const [playbackLoading, setPlaybackLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const isPlayingRef = useRef<boolean>(false);
   const [volume, setVolume] = useState<number>(100);
+  // Keep ref in sync so async callbacks (loadCurrentSong, changeVolume) always see current value
+  const setVolumeState = (v: number) => { volumeRef.current = v; setVolume(v); };
+  const setIsPlayingState = (v: boolean) => { isPlayingRef.current = v; setIsPlaying(v); };
   const [error, setError] = useState<string | null>(null);
   const [localElapsedTime, setLocalElapsedTime] = useState<number>(0);
   const soundRef = useRef<Audio.Sound | null>(null);
+  const volumeRef = useRef<number>(100); // shadow of `volume` state, safe in async callbacks
+  // metaRef: mirrors `meta` state — updated synchronously before setMeta() so that
+  // WS message handlers (e.g. queueUpdated) always read the latest meta without stale closures.
+  const metaRef = useRef<StreamMeta | null>(null);
+  const setMetaAndRef = (m: StreamMeta | null) => { metaRef.current = m; setMeta(m); };
+  const getEffectiveVolume = React.useCallback((m: StreamMeta | null = metaRef.current) => {
+    const rawVolume = Number(volumeRef.current);
+    const baseVol = Math.min(1, Math.max(0, (Number.isFinite(rawVolume) ? rawVolume : 100) / 100));
+    if (!m?.monotoneEnabled || typeof m.lufsGainDb !== "number" || m.lufsGainDb === 0) {
+      return baseVol;
+    }
+
+    const gainMult = Math.pow(10, m.lufsGainDb / 20);
+    if (!Number.isFinite(gainMult) || gainMult <= 0) return baseVol;
+
+    // User volume is the master volume. LUFS may reduce loud tracks, but must
+    // never boost the actual Expo volume above the selected percentage.
+    return Math.min(baseVol, Math.max(0, baseVol * gainMult));
+  }, []);
+  const applyCurrentVolume = React.useCallback(async (sound: Audio.Sound | null, m?: StreamMeta | null) => {
+    if (!sound) return;
+    await sound.setVolumeAsync(getEffectiveVolume(m ?? metaRef.current)).catch(() => undefined);
+  }, [getEffectiveVolume]);
   const tokenRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const wsReconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -81,6 +181,26 @@ export default function PlayerScreen() {
   const serverElapsedRef = useRef<number>(0);  // Letzte elapsed time vom Server
   const serverTimestampRef = useRef<number>(Date.now());  // Zeitpunkt des letzten Updates
   const pendingControlRef = useRef<boolean>(false);
+  const trackLoadSeqRef = useRef<number>(0);
+  const lastLoadedTrackKeyRef = useRef<string>("");
+  const hasStartedPlaybackRef = useRef<boolean>(false);
+
+  // Drag-to-reorder state
+  const [dragFromIdx, setDragFromIdx] = useState<number | null>(null);
+  const [dragToIdx, setDragToIdx] = useState<number | null>(null);
+  const dragFromIdxRef = useRef<number | null>(null);
+  const dragToIdxRef = useRef<number | null>(null);
+  const queueScrollOffsetRef = useRef(0);
+  const queueContainerTopRef = useRef(0);
+  // Mutable handler refs — updated each render so they always capture current state/closures.
+  // The stable wrappers below never change reference, so QueueItemRow PanResponders are stable.
+  const dragStartHandlerRef = useRef<(idx: number) => void>(() => {});
+  const dragMoveHandlerRef  = useRef<(moveY: number) => void>(() => {});
+  const dragEndHandlerRef   = useRef<() => void>(() => {});
+  const stableDragStart  = useCallback((idx: number) => { dragStartHandlerRef.current(idx); }, []);
+  const stableDragMove   = useCallback((moveY: number) => { dragMoveHandlerRef.current(moveY); }, []);
+  const stableDragEnd    = useCallback(() => { dragEndHandlerRef.current(); }, []);
+  const stableOnLayout   = useCallback((idx: number, y: number) => { queueItemLayoutRef.current[idx] = y; }, []);
 
   // Bottom sheet (mobile) state
   const COLLAPSED_HEIGHT = 220; // Show 2-3 songs
@@ -165,7 +285,10 @@ export default function PlayerScreen() {
   const applyQueueFromServer = React.useCallback((serverQueue: any[], optMeta?: StreamMeta) => {
     if (!Array.isArray(serverQueue)) return;
 
-    const m = optMeta ?? meta;
+    // Use metaRef.current instead of the `meta` state to avoid stale closure issues:
+    // when a `queueUpdated` WS message arrives right after `trackChanged`, the React
+    // state for `meta` is not yet committed, but metaRef is always up-to-date.
+    const m = optMeta ?? metaRef.current;
 
     // Determine authoritative active array index:
     // Priority: match by meta.filename, then by meta.index, then by server-provided isPlaying, else fallback to first item.
@@ -191,9 +314,13 @@ export default function PlayerScreen() {
     const mapped: QueueItem[] = serverQueue.map((it: any, arrIdx: number) => {
       const itemIndex = typeof it.index === "number" ? it.index : arrIdx;
 
-      // isPlaying derived deterministically from meta (if present) or activeArrayIndex
-      const matchesMeta = m && ((m.filename && it.song === m.filename) || (typeof m.index === "number" && itemIndex === m.index));
-      const isPlaying = Boolean(matchesMeta) || (!m && arrIdx === activeArrayIndex) || (m && arrIdx === activeArrayIndex && activeArrayIndex !== -1 && !matchesMeta);
+      // isPlaying: prioritise filename match; only fall back to index when filename is unavailable.
+      // Using index as an OR-condition would match the WRONG song after queue reshuffles
+      // (e.g. after jumpto, m.index=2 but item at old position 2 is a different song).
+      const matchesMeta = m
+        ? (m.filename ? it.song === m.filename : (typeof m.index === "number" && itemIndex === m.index))
+        : false;
+      const isPlaying = matchesMeta || (!m && arrIdx === activeArrayIndex);
 
       // hasBeenPlayed derived strictly from meta.index if available, otherwise by position vs activeArrayIndex
       let hasBeenPlayed = false;
@@ -269,7 +396,7 @@ export default function PlayerScreen() {
         }
       });
     }
-  }, [meta]);
+  }, []);
 
   // Centralized handler for authoritative track changes (from WS or fallback HTTP)
   const handleTrackChanged = React.useCallback((dm: any, serverQueue?: any[]) => {
@@ -289,14 +416,19 @@ export default function PlayerScreen() {
       index: dm.index,
       total: dm.total,
       elapsed: newElapsed,
+      lufsGainDb: dm.lufsGainDb ?? 0,
+      monotoneEnabled: dm.monotoneEnabled ?? false,
     };
+    const shouldLoadAudio = Boolean(soundRef.current || hasStartedPlaybackRef.current);
 
-    // Set meta atomically
-    setMeta(freshMeta);
+    // Set meta atomically — update ref FIRST so subsequent applyQueueFromServer calls
+    // (e.g. from a queueUpdated WS message arriving before React state is committed)
+    // always read the latest meta via metaRef.current.
+    setMetaAndRef(freshMeta);
 
     // Timer and play state — update via centralized helper to avoid partial updates/flicker
     updateServerTime(newElapsed, newDuration);
-    setIsPlaying(true);
+    setIsPlayingState(true);
 
     // record last update time for fallback/sync checks immediately so syncCheck won't override
     lastMetaUpdateRef.current = Date.now();
@@ -310,18 +442,59 @@ export default function PlayerScreen() {
     // clear any pending control optimistic state
     pendingControlRef.current = false;
 
+    const trackKey = `${freshMeta.filename || ""}:${typeof freshMeta.index === "number" ? freshMeta.index : ""}`;
+
+    // Load the new song file if we're in playing state
+    // We check soundRef to know if user ever pressed Play
+    if (soundRef.current && lastLoadedTrackKeyRef.current === trackKey) {
+      applyCurrentVolume(soundRef.current, freshMeta);
+    } else if (shouldLoadAudio) {
+      const loadSeq = ++trackLoadSeqRef.current;
+      // Small delay to let meta state settle before loading
+      setTimeout(() => {
+        if (!tokenRef.current || !dm.filename) return;
+        const fileUrl = `${API_BASE}/stream/file/${encodeURIComponent(dm.filename)}?token=${encodeURIComponent(tokenRef.current!)}`;
+        const previousSound = soundRef.current;
+        if (previousSound) soundRef.current = null;
+        Promise.resolve(previousSound?.unloadAsync().catch(() => undefined)).then(async () => {
+          try {
+            const { sound } = await Audio.Sound.createAsync(
+              { uri: fileUrl },
+              {
+                shouldPlay: true,
+                positionMillis: (newElapsed || 0) * 1000,
+                progressUpdateIntervalMillis: 500,
+                volume: getEffectiveVolume(freshMeta),
+              }
+            );
+            if (loadSeq !== trackLoadSeqRef.current) {
+              await sound.unloadAsync().catch(() => undefined);
+              return;
+            }
+            soundRef.current = sound;
+            lastLoadedTrackKeyRef.current = trackKey;
+            sound.setOnPlaybackStatusUpdate(handleStatusUpdate);
+            await applyCurrentVolume(sound, freshMeta);
+            setIsPlayingState(true);
+            setError(null);
+          } catch (e) {
+            console.error("Track switch load error:", e);
+          }
+        });
+      }, 50);
+    }
+
     // If the server already included the queue, apply it deterministically
     if (Array.isArray(serverQueue)) {
       applyQueueFromServer(serverQueue, freshMeta);
     } else {
-      // If we already have a queue locally, reconcile its isPlaying with the new meta
       if (queue.length > 0) {
         applyQueueFromServer(queue, freshMeta);
       }
     }
 
     return newVer;
-  }, [applyQueueFromServer, queue]);
+  }, [applyCurrentVolume, applyQueueFromServer, getEffectiveVolume, queue, updateServerTime]);
 
   useEffect(() => {
     const init = async () => {
@@ -416,7 +589,11 @@ export default function PlayerScreen() {
       }
       if (soundRef.current) {
         soundRef.current.unloadAsync().catch(() => undefined);
+        soundRef.current = null;
       }
+      hasStartedPlaybackRef.current = false;
+      lastLoadedTrackKeyRef.current = "";
+      trackLoadSeqRef.current += 1;
     };
   }, []);
 
@@ -457,7 +634,14 @@ export default function PlayerScreen() {
           }
 
           if (data?.type === "volumeChanged" && typeof data.volume === "number") {
-            setVolume(Number(data.volume));
+            const newVol = Number(data.volume);
+            setVolumeState(newVol);
+            applyCurrentVolume(soundRef.current);
+            return;
+          }
+
+          if (data?.type === "settingsUpdated" && data.settings) {
+            applyCurrentVolume(soundRef.current);
             return;
           }
         } catch (e) {
@@ -524,7 +708,7 @@ export default function PlayerScreen() {
       });
       if (!res.ok) return;
       const json = await res.json();
-      if (typeof json?.volume === "number") setVolume(json.volume);
+      if (typeof json?.volume === "number") setVolumeState(json.volume);
     } catch (e) {
       // ignore
     }
@@ -623,57 +807,125 @@ export default function PlayerScreen() {
   const handleStatusUpdate = (status: AVPlaybackStatus) => {
     if (!status.isLoaded) {
       if ((status as any).error) {
-        setError("Fehler beim Abspielen des Streams.");
+        console.error("Playback error:", (status as any).error);
+        setError("Fehler beim Abspielen.");
       }
       return;
     }
 
-    setIsPlaying(status.isPlaying);
+    setIsPlayingState(status.isPlaying);
+
+    // Song finished → tell server (fallback for songs without known duration)
+    if (status.didJustFinish) {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send("SONG_ENDED");
+      }
+    }
   };
 
-  // Start or prepare the audio stream. Pass `shouldPlay=true` to immediately start playback.
-  const startStream = async (shouldPlay = false) => {
-    if (!tokenRef.current) return;
+  // ─── Track loading ──────────────────────────────────────────────────────────
+
+  const nextSoundRef = useRef<Audio.Sound | null>(null);
+
+  /**
+   * Load and optionally play the current server track.
+   * If `play` is true the sound starts immediately; otherwise it waits for
+   * the user to press Play.
+   */
+  const loadCurrentSong = async (play = false) => {
+    if (!tokenRef.current || !meta?.filename) return;
+    if (play) hasStartedPlaybackRef.current = true;
+
+    const fileUrl = `${API_BASE}/stream/file/${encodeURIComponent(meta.filename)}?token=${encodeURIComponent(tokenRef.current)}`;
 
     try {
       setPlaybackLoading(true);
+      const loadSeq = ++trackLoadSeqRef.current;
+      const currentMeta = metaRef.current ?? meta;
+      const trackKey = `${currentMeta?.filename || meta.filename}:${typeof currentMeta?.index === "number" ? currentMeta.index : ""}`;
+
+      // Unload old sound
       if (soundRef.current) {
-        await soundRef.current.unloadAsync();
+        await soundRef.current.unloadAsync().catch(() => undefined);
         soundRef.current = null;
+        lastLoadedTrackKeyRef.current = "";
       }
 
-      const streamUrl = `${API_BASE}/stream?token=${encodeURIComponent(tokenRef.current)}`;
+      // If we have a preloaded next-sound for THIS filename, promote it
+      // (nextSoundRef is preloaded for the NEXT song, so don't use it here directly)
 
       const { sound } = await Audio.Sound.createAsync(
+        { uri: fileUrl },
         {
-          uri: streamUrl,
-        },
-        { shouldPlay }
+          shouldPlay: play,
+          positionMillis: (serverElapsedRef.current || 0) * 1000,
+          progressUpdateIntervalMillis: 500,
+          volume: getEffectiveVolume(metaRef.current),
+        }
       );
 
-      soundRef.current = sound;
-      sound.setOnPlaybackStatusUpdate(handleStatusUpdate);
-      setError(null);
-      // Fetch latest metadata right after creating the sound so the UI timer
-      // is immediately synced to the current stream position (important when
-      // the user starts playback mid-song).
-      try {
-        await fetchMetadata();
-      } catch (e) {
-        // ignore fetch errors here; fetchMetadata already handles them
+      if (loadSeq !== trackLoadSeqRef.current) {
+        await sound.unloadAsync().catch(() => undefined);
+        return;
       }
 
-      if (!shouldPlay) {
-        const st = await sound.getStatusAsync();
-        if (st.isLoaded && st.isPlaying) {
-          await sound.pauseAsync();
-        }
+      soundRef.current = sound;
+      lastLoadedTrackKeyRef.current = trackKey;
+      sound.setOnPlaybackStatusUpdate(handleStatusUpdate);
+
+      await applyCurrentVolume(sound);
+
+      setError(null);
+
+      if (play) {
+        setIsPlayingState(true);
       }
+
+      // Preload next song in background
+      preloadNextSong();
+
     } catch (err) {
-      setError("Audio-Stream konnte nicht geladen werden.");
+      console.error("loadCurrentSong error:", err);
+      setError("Song konnte nicht geladen werden.");
     } finally {
       setPlaybackLoading(false);
     }
+  };
+
+  /**
+   * Preload the next song silently so the switch is instant.
+   */
+  const preloadNextSong = async () => {
+    if (!tokenRef.current) return;
+    try {
+      const res = await fetch(`${API_BASE}/stream/prefetch`, {
+        headers: { Authorization: `Bearer ${tokenRef.current}` },
+      });
+      if (!res.ok) return;
+      const json = await res.json();
+      if (!json?.next?.filename) return;
+
+      const nextUrl = `${API_BASE}/stream/file/${encodeURIComponent(json.next.filename)}?token=${encodeURIComponent(tokenRef.current)}`;
+
+      // Unload any previous preload
+      if (nextSoundRef.current) {
+        await nextSoundRef.current.unloadAsync().catch(() => undefined);
+        nextSoundRef.current = null;
+      }
+
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: nextUrl },
+        { shouldPlay: false, volume: getEffectiveVolume(metaRef.current) }
+      );
+      nextSoundRef.current = sound;
+    } catch {
+      // preload failure is non-critical
+    }
+  };
+
+  // Start or resume the stream (called on first Play press)
+  const startStream = async (shouldPlay = false) => {
+    await loadCurrentSong(shouldPlay);
   };
 
   const fetchMetadata = async (force = false) => {
@@ -739,7 +991,7 @@ export default function PlayerScreen() {
         // Mark this HTTP response as applied
         metaVersionRef.current += 1;
 
-        setMeta({
+        const newMetaObj: StreamMeta = {
           filename: newMeta.filename,
           title: newMeta.title,
           author: newMeta.author,
@@ -748,7 +1000,8 @@ export default function PlayerScreen() {
           index: newMeta.index,
           total: newMeta.total,
           elapsed: elapsedToApply
-        });
+        };
+        setMetaAndRef(newMetaObj);
         // Apply server time (clamped) — use the adjusted elapsed for filename changes
         updateServerTime(elapsedToApply, duration);
       }
@@ -797,7 +1050,17 @@ export default function PlayerScreen() {
     if (status.isPlaying) {
       await soundRef.current.pauseAsync();
     } else {
-      // Resume existing sound rather than recreating it
+      // Sync to current server position before resuming (the server kept playing while paused)
+      const elapsed = serverElapsedRef.current + (Date.now() - serverTimestampRef.current) / 1000;
+      const duration = currentSongDurationRef.current;
+      const seekMs = Math.max(0, Math.floor(
+        duration > 0 ? Math.min(elapsed, duration) * 1000 : elapsed * 1000
+      ));
+      try {
+        await soundRef.current.setPositionAsync(seekMs);
+      } catch {
+        // seek failed – just play from wherever it is
+      }
       await soundRef.current.playAsync();
     }
   };
@@ -860,33 +1123,104 @@ export default function PlayerScreen() {
   };
 
   const changeVolume = async (delta: number) => {
-    if (!tokenRef.current) return;
-    const newV = Math.max(0, Math.min(200, Math.round((volume || 0) + delta)));
-    
-    // Optimistic UI update
-    setVolume(newV);
-    
-    // Debounce API call - reduziert Requests bei schnellen Änderungen
-    if (volumeDebounceRef.current) {
-      clearTimeout(volumeDebounceRef.current);
-    }
-    
-    volumeDebounceRef.current = setTimeout(async () => {
-      try {
-        await fetch(`${API_BASE}/stream/control/sound/${newV}`, {
+    const newV = Math.max(0, Math.min(200, Math.round((volumeRef.current || 0) + delta)));
+
+    // Apply immediately to local sound instance (optimistic, before WS echo arrives)
+    setVolumeState(newV);
+    applyCurrentVolume(soundRef.current);
+
+    // Send via WebSocket — server calls radio.setVolume() which broadcasts
+    // volumeChanged to ALL connected clients including this one.
+    // This is more reliable than HTTP fetch (no CORS, no debounce needed).
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(`VOLUME:${newV}`);
+    } else {
+      // Fallback: HTTP if WS not connected
+      if (tokenRef.current) {
+        fetch(`${API_BASE}/stream/control/sound/${newV}`, {
           headers: { Authorization: `Bearer ${tokenRef.current}` },
-        });
-      } catch (err) {
-        // Revert auf Server-Wert bei Fehler
-        await loadVolume();
-        Alert.alert("Fehler", "Lautstärke konnte nicht gesetzt werden.");
+        }).catch(() => undefined);
       }
-    }, 300); // 300ms debounce
+    }
   };
 
   const logout = async () => {
     await AsyncStorage.removeItem("authToken");
     router.replace("/");
+  };
+
+  // Move a queue item from one array index to another.
+  // Performs an optimistic local update so the UI responds instantly;
+  // the server broadcasts the authoritative queueUpdated afterwards.
+  const moveInQueue = async (from: number, to: number) => {
+    if (from === to || !tokenRef.current) return;
+    // Optimistic update
+    setQueue(prev => {
+      if (from < 0 || from >= prev.length || to < 0 || to >= prev.length) return prev;
+      const q = [...prev];
+      const [moved] = q.splice(from, 1);
+      q.splice(to, 0, moved);
+      const activeIdx = q.findIndex(x => x.isPlaying);
+      return q.map((it, i) => ({
+        ...it,
+        index: i,
+        isPlaying: i === activeIdx,
+        hasBeenPlayed: i < activeIdx,
+      }));
+    });
+    try {
+      await fetch(`${API_BASE}/stream/control/move/${from}/${to}`, {
+        headers: { Authorization: `Bearer ${tokenRef.current}` },
+      });
+    } catch { /* WS will resync */ }
+  };
+
+  // Drag handler implementations — assigned every render so they capture fresh closures.
+  // The stable wrappers (stableDragStart/Move/End) never change reference.
+  dragStartHandlerRef.current = (idx: number) => {
+    // Capture the screen-Y of the scroll view when the drag starts
+    if (queueScrollRef.current && typeof (queueScrollRef.current as any).measureInWindow === "function") {
+      (queueScrollRef.current as any).measureInWindow((_x: number, y: number) => {
+        queueContainerTopRef.current = y;
+      });
+    }
+    dragFromIdxRef.current = idx;
+    dragToIdxRef.current   = idx;
+    setDragFromIdx(idx);
+    setDragToIdx(idx);
+  };
+
+  dragMoveHandlerRef.current = (moveY: number) => {
+    if (dragFromIdxRef.current === null) return;
+    // Convert absolute screen-Y to position within the scroll view
+    const relY = moveY - queueContainerTopRef.current + queueScrollOffsetRef.current;
+    const positions = queueItemLayoutRef.current;
+    const keys = Object.keys(positions).map(Number).sort((a, b) => a - b);
+    if (keys.length === 0) return;
+    // Find the item whose midpoint is closest below relY
+    let targetIdx = keys[keys.length - 1];
+    for (const k of keys) {
+      if (relY < (positions[k] ?? 0) + EST_QUEUE_ITEM_HEIGHT / 2) {
+        targetIdx = k;
+        break;
+      }
+    }
+    if (targetIdx !== dragToIdxRef.current) {
+      dragToIdxRef.current = targetIdx;
+      setDragToIdx(targetIdx);
+    }
+  };
+
+  dragEndHandlerRef.current = () => {
+    const from = dragFromIdxRef.current;
+    const to   = dragToIdxRef.current;
+    dragFromIdxRef.current = null;
+    dragToIdxRef.current   = null;
+    setDragFromIdx(null);
+    setDragToIdx(null);
+    if (from !== null && to !== null && from !== to) {
+      moveInQueue(from, to);
+    }
   };
 
   const progress = (() => {
@@ -1038,46 +1372,27 @@ export default function PlayerScreen() {
               style={{ flex: 1 }}
               contentContainerStyle={{ paddingBottom: 40 }}
               showsVerticalScrollIndicator
+              scrollEnabled={dragFromIdx === null}
+              onScroll={(e) => { queueScrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+              scrollEventThrottle={16}
             >
               <View style={{ paddingBottom: 24 }}>
-                {queue.map((item, arrayIndex) => {
-                  const active = item.isPlaying;
-                  const played = item.hasBeenPlayed && !active;
-                  const queueIndex = item.index;
-                  return (
-                    <TouchableOpacity
-                      key={`${queueIndex}-${item.song}`}
-                      onLayout={(e) => {
-                        queueItemLayoutRef.current[arrayIndex] = e.nativeEvent.layout.y;
-                      }}
-                      style={[styles.queueItem, played && styles.queueItemPlayed, active && styles.queueItemActive]}
-                      onPress={() => {
-                        callControl(`/stream/control/jumpto/${queueIndex}`);
-                        collapseSheet(); // Collapse queue after selecting a song
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <FontAwesomeIcon icon={faGripVertical} size={18} color={active ? colors.primary : "#555555"} style={{ marginRight: 10, opacity: 0.8 } as any} />
-                      {item.cover ? (
-                        <Image source={{ uri: item.cover }} style={styles.queueThumbnail} />
-                      ) : (
-                        <View style={[styles.queueThumbnail, styles.queueThumbnailPlaceholder]}>
-                          <Text style={styles.queueThumbnailText} selectable={false}>♪</Text>
-                        </View>
-                      )}
-
-                      <View style={styles.queueTexts}>
-                        <Text style={[styles.queueTitle, active && styles.queueTitleActive]} numberOfLines={1} selectable={false}>
-                          {item.title || item.song}
-                        </Text>
-                        <Text style={styles.queueAuthor} numberOfLines={1} selectable={false}>
-                          {item.author || "Unbekannter Künstler"}
-                        </Text>
-                      </View>
-                      <Text style={[styles.queueDuration, active && { color: colors.primary }]} selectable={false}>{item.duration ? `${Math.round(item.duration / 60)}min` : ""}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                {queue.map((item, arrayIndex) => (
+                  <QueueItemRow
+                    key={`${item.index}-${item.song}`}
+                    item={item}
+                    arrayIndex={arrayIndex}
+                    active={item.isPlaying}
+                    played={Boolean(item.hasBeenPlayed) && !item.isPlaying}
+                    isDragSource={dragFromIdx === arrayIndex}
+                    isDragTarget={dragToIdx === arrayIndex && dragFromIdx !== null && dragFromIdx !== arrayIndex}
+                    onLayout={stableOnLayout}
+                    onPress={() => { callControl(`/stream/control/jumpto/${item.index}`); collapseSheet(); }}
+                    onDragStart={stableDragStart}
+                    onDragMove={stableDragMove}
+                    onDragEnd={stableDragEnd}
+                  />
+                ))}
               </View>
             </ScrollView>
           </Animated.View>
@@ -1169,46 +1484,28 @@ export default function PlayerScreen() {
               style={[styles.queueListContent, { flex: 1 }]}
               contentContainerStyle={{ paddingBottom: 24 }}
               showsVerticalScrollIndicator
+              scrollEnabled={dragFromIdx === null}
+              onScroll={(e) => { queueScrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+              scrollEventThrottle={16}
               {...(Platform.OS === "web" ? ({ className: "queue-scroll" } as any) : {})}
             >
               <View style={{ flex: 1 }}>
-                {queue.map((item, arrayIndex) => {
-                  const active = item.isPlaying;
-                  const played = item.hasBeenPlayed && !active;
-                  const queueIndex = item.index;
-                  return (
-                    <TouchableOpacity
-                      key={`${queueIndex}-${item.song}`}
-                      onLayout={(e) => {
-                        queueItemLayoutRef.current[arrayIndex] = e.nativeEvent.layout.y;
-                      }}
-                      style={[styles.queueItem, played && styles.queueItemPlayed, active && styles.queueItemActive]}
-                      onPress={() => {
-                        callControl(`/stream/control/jumpto/${queueIndex}`);
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <FontAwesomeIcon icon={faGripVertical} size={18} color={active ? colors.primary : "#555555"} style={{ marginRight: 10, opacity: 0.8 } as any} />
-                      {item.cover ? (
-                        <Image source={{ uri: item.cover }} style={styles.queueThumbnail} />
-                      ) : (
-                        <View style={[styles.queueThumbnail, styles.queueThumbnailPlaceholder]}>
-                          <Text style={styles.queueThumbnailText}>♪</Text>
-                        </View>
-                      )}
-
-                      <View style={styles.queueTexts}>
-                        <Text style={[styles.queueTitle, active && styles.queueTitleActive]} numberOfLines={1} selectable={false}>
-                          {item.title || item.song}
-                        </Text>
-                        <Text style={styles.queueAuthor} numberOfLines={1} selectable={false}>
-                          {item.author || "Unbekannter Künstler"}
-                        </Text>
-                      </View>
-                      <Text style={[styles.queueDuration, active && { color: colors.primary }]} selectable={false}>{item.duration ? `${Math.round(item.duration / 60)}min` : ""}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                {queue.map((item, arrayIndex) => (
+                  <QueueItemRow
+                    key={`${item.index}-${item.song}`}
+                    item={item}
+                    arrayIndex={arrayIndex}
+                    active={item.isPlaying}
+                    played={Boolean(item.hasBeenPlayed) && !item.isPlaying}
+                    isDragSource={dragFromIdx === arrayIndex}
+                    isDragTarget={dragToIdx === arrayIndex && dragFromIdx !== null && dragFromIdx !== arrayIndex}
+                    onLayout={stableOnLayout}
+                    onPress={() => callControl(`/stream/control/jumpto/${item.index}`)}
+                    onDragStart={stableDragStart}
+                    onDragMove={stableDragMove}
+                    onDragEnd={stableDragEnd}
+                  />
+                ))}
               </View>
             </ScrollView>
           </View>
@@ -1232,7 +1529,7 @@ export default function PlayerScreen() {
               <Text style={styles.footerLink}>Datenschutz</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.footerVersion}>v1.0.0</Text>
+          <Text style={styles.footerVersion}>v4.0.0</Text>
         </View>
       )}
     </SafeAreaView>

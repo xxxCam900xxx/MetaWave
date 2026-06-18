@@ -9,6 +9,7 @@ import cron from "node-cron";
 import StreamRouter from "./core/RadioEngineRouter.js";
 import AuthRouter from "./middleware/AuthRouter.js";
 import NotificationRouter from "./notification/NotificationRouter.js";
+import PlaylistRouter from "./playlist/PlaylistRouter.js";
 
 // Import Websockets
 import { setupWebSocket } from "./websocket/WebsocketLogic.js";
@@ -76,6 +77,7 @@ setupSwagger(app);
 app.use("/auth", AuthRouter);
 app.use("/stream", StreamRouter);
 app.use("/notification", NotificationRouter);
+app.use("/playlist", PlaylistRouter);
 
 // Setup WebSocket
 setupWebSocket(server);

@@ -6,3 +6,9 @@ services:
       dockerfile: docker/metawave_database/dockerfile.database
     env_file:
       - ../metawave_database/.env
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s

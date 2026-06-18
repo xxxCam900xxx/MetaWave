@@ -222,7 +222,7 @@ export default function InviteScreen() {
               <Text style={loginStyles.footerLink}>Datenschutz</Text>
             </TouchableOpacity>
           </View>
-          <Text style={loginStyles.footerVersion}>v1.0.0</Text>
+          <Text style={loginStyles.footerVersion}>v4.0.0</Text>
         </View>
     </SafeAreaView>
   );
