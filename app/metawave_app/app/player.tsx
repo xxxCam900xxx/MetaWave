@@ -32,7 +32,7 @@ interface QueueItem {
   cover?: string;
   index: number;
   isPlaying: boolean;
-   hasBeenPlayed?: boolean;
+  hasBeenPlayed?: boolean;
 }
 
 const formatTime = (totalSeconds: number): string => {
@@ -52,7 +52,6 @@ const formatEndClockTime = (remainingSeconds: number): string => {
 };
 
 // ─── Queue Item Component ───────────────────────────────────────────────────
-
 interface QueueItemRowProps {
   item: QueueItem;
   arrayIndex: number;
@@ -121,79 +120,77 @@ const QueueItemRow: React.FC<QueueItemRowProps> = React.memo(({
 });
 
 // ─── Player Screen ──────────────────────────────────────────────────────────
-
 export default function PlayerScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const isDesktop = width >= 900;
   const isMobile = !isDesktop;
   const windowHeight = Dimensions.get("window").height;
+  
   const [meta, setMeta] = useState<StreamMeta | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [playbackLoading, setPlaybackLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const isPlayingRef = useRef<boolean>(false);
   const [volume, setVolume] = useState<number>(100);
-  // Keep ref in sync so async callbacks (loadCurrentSong, changeVolume) always see current value
-  const setVolumeState = (v: number) => { volumeRef.current = v; setVolume(v); };
-  const setIsPlayingState = (v: boolean) => { isPlayingRef.current = v; setIsPlaying(v); };
   const [error, setError] = useState<string | null>(null);
   const [localElapsedTime, setLocalElapsedTime] = useState<number>(0);
-  const soundRef = useRef<Audio.Sound | null>(null);
-  const volumeRef = useRef<number>(100); // shadow of `volume` state, safe in async callbacks
-  // metaRef: mirrors `meta` state — updated synchronously before setMeta() so that
-  // WS message handlers (e.g. queueUpdated) always read the latest meta without stale closures.
+  
+  const volumeRef = useRef<number>(100);
+  const isPlayingRef = useRef<boolean>(false);
   const metaRef = useRef<StreamMeta | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const nextSoundRef = useRef<Audio.Sound | null>(null);
+
+  const setVolumeState = (v: number) => { volumeRef.current = v; setVolume(v); };
+  const setIsPlayingState = (v: boolean) => { isPlayingRef.current = v; setIsPlaying(v); };
   const setMetaAndRef = (m: StreamMeta | null) => { metaRef.current = m; setMeta(m); };
+
+  // ─── AUDIO MUTEX (DER iOS FIX) ──────────────────────────────────────────────
+  const isAudioLockRef = useRef<boolean>(false);
+  const pendingTrackRef = useRef<StreamMeta | null>(null);
+  // ────────────────────────────────────────────────────────────────────────────
+
   const getEffectiveVolume = React.useCallback((m: StreamMeta | null = metaRef.current) => {
     const rawVolume = Number(volumeRef.current);
     const baseVol = Math.min(1, Math.max(0, (Number.isFinite(rawVolume) ? rawVolume : 100) / 100));
-    if (!m?.monotoneEnabled || typeof m.lufsGainDb !== "number" || m.lufsGainDb === 0) {
-      return baseVol;
-    }
-
+    if (!m?.monotoneEnabled || typeof m.lufsGainDb !== "number" || m.lufsGainDb === 0) return baseVol;
     const gainMult = Math.pow(10, m.lufsGainDb / 20);
     if (!Number.isFinite(gainMult) || gainMult <= 0) return baseVol;
-
-    // User volume is the master volume. LUFS may reduce loud tracks, but must
-    // never boost the actual Expo volume above the selected percentage.
     return Math.min(baseVol, Math.max(0, baseVol * gainMult));
   }, []);
+
   const applyCurrentVolume = React.useCallback(async (sound: Audio.Sound | null, m?: StreamMeta | null) => {
     if (!sound) return;
     await sound.setVolumeAsync(getEffectiveVolume(m ?? metaRef.current)).catch(() => undefined);
   }, [getEffectiveVolume]);
+
   const tokenRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const wsReconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const metaVersionRef = useRef<number>(0); // incremented on every authoritative meta update
+  const metaVersionRef = useRef<number>(0);
   const localTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const authIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queueScrollRef = useRef<any>(null);
   const queueItemLayoutRef = useRef<Record<number, number>>({});
-  const EST_QUEUE_ITEM_HEIGHT = 76; // estimated height for fallback scrolling
-  const volumeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const EST_QUEUE_ITEM_HEIGHT = 76;
   const lastMetaUpdateRef = useRef<number>(Date.now());
   const currentSongDurationRef = useRef<number>(0);
-  const serverElapsedRef = useRef<number>(0);  // Letzte elapsed time vom Server
-  const serverTimestampRef = useRef<number>(Date.now());  // Zeitpunkt des letzten Updates
+  const serverElapsedRef = useRef<number>(0);
+  const serverTimestampRef = useRef<number>(Date.now());
   const pendingControlRef = useRef<boolean>(false);
-  const trackLoadSeqRef = useRef<number>(0);
   const lastLoadedTrackKeyRef = useRef<string>("");
   const hasStartedPlaybackRef = useRef<boolean>(false);
 
-  // Drag-to-reorder state
+  // Drag State
   const [dragFromIdx, setDragFromIdx] = useState<number | null>(null);
   const [dragToIdx, setDragToIdx] = useState<number | null>(null);
   const dragFromIdxRef = useRef<number | null>(null);
   const dragToIdxRef = useRef<number | null>(null);
   const queueScrollOffsetRef = useRef(0);
   const queueContainerTopRef = useRef(0);
-  // Mutable handler refs — updated each render so they always capture current state/closures.
-  // The stable wrappers below never change reference, so QueueItemRow PanResponders are stable.
   const dragStartHandlerRef = useRef<(idx: number) => void>(() => {});
   const dragMoveHandlerRef  = useRef<(moveY: number) => void>(() => {});
   const dragEndHandlerRef   = useRef<() => void>(() => {});
@@ -202,45 +199,21 @@ export default function PlayerScreen() {
   const stableDragEnd    = useCallback(() => { dragEndHandlerRef.current(); }, []);
   const stableOnLayout   = useCallback((idx: number, y: number) => { queueItemLayoutRef.current[idx] = y; }, []);
 
-  // Bottom sheet (mobile) state
-  const COLLAPSED_HEIGHT = 220; // Show 2-3 songs
-  const EXPANDED_HEIGHT = Math.round(windowHeight - 120); // Almost full screen (leave larger margin)
+  // Bottom Sheet
+  const COLLAPSED_HEIGHT = 220;
+  const EXPANDED_HEIGHT = Math.round(windowHeight - 120);
   const sheetTranslateY = useRef(new Animated.Value(EXPANDED_HEIGHT - COLLAPSED_HEIGHT)).current;
   const [sheetExpanded, setSheetExpanded] = useState(false);
   const panStartRef = useRef(0);
 
-  // Collapse the sheet back to minimized state
-  const collapseSheet = () => {
-    Animated.spring(sheetTranslateY, { 
-      toValue: EXPANDED_HEIGHT - COLLAPSED_HEIGHT, 
-      useNativeDriver: true,
-      friction: 8,
-    }).start(() => {
-      setSheetExpanded(false);
-    });
-  };
-
-  // Expand the sheet
-  const expandSheet = () => {
-    Animated.spring(sheetTranslateY, { 
-      toValue: 0, 
-      useNativeDriver: true,
-      friction: 8,
-    }).start(() => {
-      setSheetExpanded(true);
-    });
-  };
+  const collapseSheet = () => Animated.spring(sheetTranslateY, { toValue: EXPANDED_HEIGHT - COLLAPSED_HEIGHT, useNativeDriver: true, friction: 8 }).start(() => setSheetExpanded(false));
+  const expandSheet = () => Animated.spring(sheetTranslateY, { toValue: 0, useNativeDriver: true, friction: 8 }).start(() => setSheetExpanded(true));
 
   const panResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onStartShouldSetPanResponderCapture: () => true,
-    onMoveShouldSetPanResponder: (_, gestureState) => {
-      return Math.abs(gestureState.dy) > 5;
-    },
-    onPanResponderGrant: () => {
-      // @ts-ignore - _value exists at runtime
-      panStartRef.current = sheetTranslateY._value || 0;
-    },
+    onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 5,
+    onPanResponderGrant: () => { panStartRef.current = (sheetTranslateY as any)._value || 0; },
     onPanResponderMove: (_, gestureState) => {
       const maxTranslate = Math.max(EXPANDED_HEIGHT - COLLAPSED_HEIGHT, 0);
       const next = Math.min(Math.max(panStartRef.current + gestureState.dy, 0), maxTranslate);
@@ -249,985 +222,467 @@ export default function PlayerScreen() {
     onPanResponderRelease: (_, gestureState) => {
       const velocity = gestureState.vy;
       const maxTranslate = Math.max(EXPANDED_HEIGHT - COLLAPSED_HEIGHT, 0);
-      // @ts-ignore
-      const currentValue = sheetTranslateY._value || 0;
-      const threshold = maxTranslate / 2;
-      
-      // Expand if dragged past threshold or flicked up fast
-      const shouldExpand = currentValue < threshold || velocity < -0.5;
-      
-      if (shouldExpand) {
-        expandSheet();
-      } else {
-        collapseSheet();
-      }
+      const currentValue = (sheetTranslateY as any)._value || 0;
+      if (currentValue < maxTranslate / 2 || velocity < -0.5) expandSheet();
+      else collapseSheet();
     },
   }), [EXPANDED_HEIGHT, COLLAPSED_HEIGHT]);
 
-  // Helper: Server-Zeit speichern - Timer berechnet sich daraus automatisch
-  // Clamp values to avoid negative / overshoot and ensure UI shows integer seconds.
   const updateServerTime = React.useCallback((elapsed: number, duration: number) => {
     const dur = Math.max(0, Number(duration) || 0);
     let el = Math.max(0, Number(elapsed) || 0);
     if (dur > 0) el = Math.min(el, dur);
-
-    console.log(`[Timer] Applying server time: ${el}s / ${dur}s`);
-
     serverElapsedRef.current = el;
     serverTimestampRef.current = Date.now();
     currentSongDurationRef.current = dur;
-    // Force UI update with integer seconds
     setLocalElapsedTime(Math.floor(el));
   }, []);
 
-  // Apply a queue coming from the server. Deterministically derive `isPlaying`
-  // and `hasBeenPlayed` from authoritative `meta` and the server queue only.
   const applyQueueFromServer = React.useCallback((serverQueue: any[], optMeta?: StreamMeta) => {
     if (!Array.isArray(serverQueue)) return;
-
-    // Use metaRef.current instead of the `meta` state to avoid stale closure issues:
-    // when a `queueUpdated` WS message arrives right after `trackChanged`, the React
-    // state for `meta` is not yet committed, but metaRef is always up-to-date.
     const m = optMeta ?? metaRef.current;
-
-    // Determine authoritative active array index:
-    // Priority: match by meta.filename, then by meta.index, then by server-provided isPlaying, else fallback to first item.
     let activeArrayIndex = -1;
 
     if (m) {
-      if (m.filename) {
-        activeArrayIndex = serverQueue.findIndex((it: any) => it.song === m.filename);
-      }
-      if (activeArrayIndex === -1 && typeof m.index === "number") {
-        activeArrayIndex = serverQueue.findIndex((it: any) => typeof it.index === "number" && it.index === m.index);
-      }
+      if (m.filename) activeArrayIndex = serverQueue.findIndex((it: any) => it.song === m.filename);
+      if (activeArrayIndex === -1 && typeof m.index === "number") activeArrayIndex = serverQueue.findIndex((it: any) => typeof it.index === "number" && it.index === m.index);
     }
+    if (activeArrayIndex === -1) activeArrayIndex = serverQueue.findIndex((it: any) => Boolean(it.isPlaying));
+    if (activeArrayIndex === -1) activeArrayIndex = 0;
 
-    if (activeArrayIndex === -1) {
-      activeArrayIndex = serverQueue.findIndex((it: any) => Boolean(it.isPlaying));
-    }
-    if (activeArrayIndex === -1) {
-      activeArrayIndex = 0; // deterministic fallback
-    }
-
-    // Build new queue solely from serverQueue + authoritative meta (no previous state influences)
     const mapped: QueueItem[] = serverQueue.map((it: any, arrIdx: number) => {
       const itemIndex = typeof it.index === "number" ? it.index : arrIdx;
-
-      // isPlaying: prioritise filename match; only fall back to index when filename is unavailable.
-      // Using index as an OR-condition would match the WRONG song after queue reshuffles
-      // (e.g. after jumpto, m.index=2 but item at old position 2 is a different song).
-      const matchesMeta = m
-        ? (m.filename ? it.song === m.filename : (typeof m.index === "number" && itemIndex === m.index))
-        : false;
+      const matchesMeta = m ? (m.filename ? it.song === m.filename : (typeof m.index === "number" && itemIndex === m.index)) : false;
       const isPlaying = matchesMeta || (!m && arrIdx === activeArrayIndex);
-
-      // hasBeenPlayed derived strictly from meta.index if available, otherwise by position vs activeArrayIndex
       let hasBeenPlayed = false;
-      if (typeof m?.index === "number") {
-        hasBeenPlayed = typeof itemIndex === "number" ? itemIndex < m.index : arrIdx < m.index;
-      } else {
-        hasBeenPlayed = arrIdx < activeArrayIndex;
-      }
-
-      // Active item must never be considered played
+      
+      if (typeof m?.index === "number") hasBeenPlayed = typeof itemIndex === "number" ? itemIndex < m.index : arrIdx < m.index;
+      else hasBeenPlayed = arrIdx < activeArrayIndex;
       if (isPlaying) hasBeenPlayed = false;
 
       return {
-        song: it.song,
-        title: it.title,
-        author: it.author,
-        duration: it.duration,
-        cover: it.cover,
-        index: itemIndex,
-        isPlaying: Boolean(isPlaying),
-        hasBeenPlayed: Boolean(hasBeenPlayed),
+        song: it.song, title: it.title, author: it.author, duration: it.duration,
+        cover: it.cover, index: itemIndex, isPlaying: Boolean(isPlaying), hasBeenPlayed: Boolean(hasBeenPlayed),
       };
     });
 
-    // Ensure exactly one active item (enforce single active deterministically)
     const firstActive = mapped.findIndex((x) => x.isPlaying);
     if (firstActive !== -1) {
       mapped.forEach((it, i) => (it.isPlaying = i === firstActive));
-      mapped.forEach((it, i) => {
-        it.hasBeenPlayed = i === firstActive ? false : it.hasBeenPlayed;
-      });
+      mapped.forEach((it, i) => it.hasBeenPlayed = i === firstActive ? false : it.hasBeenPlayed);
     } else {
-      // guaranteed fallback: mark index 0 active
-      mapped.forEach((it, i) => {
-        it.isPlaying = i === 0;
-        it.hasBeenPlayed = i === 0 ? false : true;
-      });
+      mapped.forEach((it, i) => { it.isPlaying = i === 0; it.hasBeenPlayed = i === 0 ? false : true; });
     }
 
     setQueue(mapped);
 
-    // After queue is applied, attempt to scroll the active item into view.
     const activeIdx = mapped.findIndex((x) => x.isPlaying);
     if (activeIdx !== -1) {
       InteractionManager.runAfterInteractions(() => {
         const scrollView = queueScrollRef.current;
         if (!scrollView) return;
-
         const tryScroll = () => {
           const y = queueItemLayoutRef.current[activeIdx];
-          console.log(`[Scroll] attempt for index=${activeIdx} layoutY=${y}`);
           if (typeof y === "number" && typeof scrollView.scrollTo === "function") {
             scrollView.scrollTo({ y: Math.max(y - 8, 0), animated: true });
             return true;
           }
-
-          // fallback: estimate position based on average item height
-          if (typeof scrollView.scrollTo === "function") {
-            const est = Math.max(activeIdx * EST_QUEUE_ITEM_HEIGHT - 8, 0);
-            console.log(`[Scroll] falling back to estimate y=${est}`);
-            scrollView.scrollTo({ y: est, animated: true });
-            return true;
-          }
           return false;
         };
-
         if (!tryScroll()) {
           let attempts = 0;
-          const id = setInterval(() => {
-            attempts += 1;
-            if (tryScroll() || attempts > 12) clearInterval(id);
-          }, 120);
+          const id = setInterval(() => { attempts += 1; if (tryScroll() || attempts > 12) clearInterval(id); }, 120);
         }
       });
     }
   }, []);
 
-  // Centralized handler for authoritative track changes (from WS or fallback HTTP)
-  const handleTrackChanged = React.useCallback((dm: any, serverQueue?: any[]) => {
-    // bump version so in-flight HTTP responses can detect staleness
-    metaVersionRef.current += 1;
-    const newVer = metaVersionRef.current;
+  // ─── CATCH-UP LOGIK ────────────────────────────────────────────────────────
+  const handleStatusUpdate = (status: AVPlaybackStatus) => {
+    if (!status.isLoaded) {
+      if ((status as any).error) setError("Fehler beim Abspielen.");
+      return;
+    }
+    setIsPlayingState(status.isPlaying);
+    
+    if (status.isPlaying && !pendingControlRef.current) {
+      const now = Date.now();
+      const timeSinceLastServerUpdate = (now - serverTimestampRef.current) / 1000;
+      const currentServerElapsedSeconds = serverElapsedRef.current + timeSinceLastServerUpdate;
+      const clientElapsedSeconds = status.positionMillis / 1000;
+      const drift = currentServerElapsedSeconds - clientElapsedSeconds;
 
+      if (drift > 3.5) {
+        soundRef.current?.setPositionAsync(Math.floor(currentServerElapsedSeconds * 1000)).catch(() => {});
+      } else if (drift > 0.8) {
+        if (status.rate !== 1.1) soundRef.current?.setRateAsync(1.1, true).catch(() => {});
+      } else if (drift < -0.5 || drift <= 0.2) {
+        if (status.rate !== 1.0) soundRef.current?.setRateAsync(1.0, true).catch(() => {});
+      }
+    }
+
+    if (status.didJustFinish) {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send("SONG_ENDED");
+    }
+  };
+
+  // ─── SAFE AUDIO LOADER (MUTEX PATTERN) ──────────────────────────────────────
+  const safeLoadTrack = async (targetMeta: StreamMeta) => {
+    // 1. Wenn schon ein Prozess läuft, merken wir uns einfach den neuesten Track
+    if (isAudioLockRef.current) {
+      pendingTrackRef.current = targetMeta;
+      return;
+    }
+
+    // 2. Lock aktivieren
+    isAudioLockRef.current = true;
+    setPlaybackLoading(true);
+
+    try {
+      let currentMetaToLoad: StreamMeta | null = targetMeta;
+
+      // 3. Schleife, falls während des Ladens ein noch neuerer Track reinkam
+      while (currentMetaToLoad) {
+        if (!tokenRef.current || !currentMetaToLoad.filename) break;
+
+        const trackKey = `${currentMetaToLoad.filename}:${typeof currentMetaToLoad.index === "number" ? currentMetaToLoad.index : ""}`;
+        const fileUrl = `${API_BASE}/stream/file/${encodeURIComponent(currentMetaToLoad.filename)}?token=${encodeURIComponent(tokenRef.current)}`;
+
+        // Wenn es derselbe Track ist, nur Volumen updaten
+        if (soundRef.current && lastLoadedTrackKeyRef.current === trackKey) {
+          await applyCurrentVolume(soundRef.current, currentMetaToLoad);
+        } else {
+          // Alten Sound sicher beenden, bevor der neue geladen wird
+          if (soundRef.current) {
+            await soundRef.current.unloadAsync().catch(() => undefined);
+            soundRef.current = null;
+          }
+
+          // Neuen Sound laden
+          const { sound } = await Audio.Sound.createAsync(
+            { uri: fileUrl },
+            {
+              shouldPlay: true, // Autoplay
+              positionMillis: (currentMetaToLoad.elapsed || 0) * 1000,
+              progressUpdateIntervalMillis: 500,
+              volume: getEffectiveVolume(currentMetaToLoad),
+              rate: 1.0, // Catch-Up zurücksetzen
+              shouldCorrectPitch: true
+            }
+          );
+
+          soundRef.current = sound;
+          lastLoadedTrackKeyRef.current = trackKey;
+          sound.setOnPlaybackStatusUpdate(handleStatusUpdate);
+          
+          setIsPlayingState(true);
+          setError(null);
+          
+          // Nächsten Song im Hintergrund preloaden (silent errors)
+          preloadNextSong().catch(()=>undefined);
+        }
+
+        // 4. Wurde in der Zwischenzeit ein NOCH neuerer Track angefordert?
+        currentMetaToLoad = pendingTrackRef.current;
+        pendingTrackRef.current = null; // Zurücksetzen für den nächsten Durchlauf
+      }
+    } catch (err) {
+      console.error("Audio Load Error:", err);
+      setError("Song konnte nicht geladen werden.");
+    } finally {
+      // 5. Lock aufheben
+      isAudioLockRef.current = false;
+      setPlaybackLoading(false);
+    }
+  };
+
+  const handleTrackChanged = React.useCallback((dm: any, serverQueue?: any[]) => {
+    metaVersionRef.current += 1;
     const newElapsed = Number(dm.elapsed) || 0;
     const newDuration = Number(dm.duration) || 0;
 
     const freshMeta: StreamMeta = {
-      filename: dm.filename,
-      title: dm.title,
-      author: dm.author,
-      duration: newDuration,
-      cover: dm.cover,
-      index: dm.index,
-      total: dm.total,
-      elapsed: newElapsed,
-      lufsGainDb: dm.lufsGainDb ?? 0,
-      monotoneEnabled: dm.monotoneEnabled ?? false,
+      filename: dm.filename, title: dm.title, author: dm.author, duration: newDuration,
+      cover: dm.cover, index: dm.index, total: dm.total, elapsed: newElapsed,
+      lufsGainDb: dm.lufsGainDb ?? 0, monotoneEnabled: dm.monotoneEnabled ?? false,
     };
+    
     const shouldLoadAudio = Boolean(soundRef.current || hasStartedPlaybackRef.current);
-
-    // Set meta atomically — update ref FIRST so subsequent applyQueueFromServer calls
-    // (e.g. from a queueUpdated WS message arriving before React state is committed)
-    // always read the latest meta via metaRef.current.
     setMetaAndRef(freshMeta);
-
-    // Timer and play state — update via centralized helper to avoid partial updates/flicker
     updateServerTime(newElapsed, newDuration);
     setIsPlayingState(true);
-
-    // record last update time for fallback/sync checks immediately so syncCheck won't override
     lastMetaUpdateRef.current = Date.now();
 
-    // cancel any fallback because WS provided authoritative data
     if (fallbackTimeoutRef.current) {
       clearTimeout(fallbackTimeoutRef.current);
       fallbackTimeoutRef.current = null;
     }
-
-    // clear any pending control optimistic state
     pendingControlRef.current = false;
 
-    const trackKey = `${freshMeta.filename || ""}:${typeof freshMeta.index === "number" ? freshMeta.index : ""}`;
-
-    // Load the new song file if we're in playing state
-    // We check soundRef to know if user ever pressed Play
-    if (soundRef.current && lastLoadedTrackKeyRef.current === trackKey) {
-      applyCurrentVolume(soundRef.current, freshMeta);
-    } else if (shouldLoadAudio) {
-      const loadSeq = ++trackLoadSeqRef.current;
-      // Small delay to let meta state settle before loading
-      setTimeout(() => {
-        if (!tokenRef.current || !dm.filename) return;
-        const fileUrl = `${API_BASE}/stream/file/${encodeURIComponent(dm.filename)}?token=${encodeURIComponent(tokenRef.current!)}`;
-        const previousSound = soundRef.current;
-        if (previousSound) soundRef.current = null;
-        Promise.resolve(previousSound?.unloadAsync().catch(() => undefined)).then(async () => {
-          try {
-            const { sound } = await Audio.Sound.createAsync(
-              { uri: fileUrl },
-              {
-                shouldPlay: true,
-                positionMillis: (newElapsed || 0) * 1000,
-                progressUpdateIntervalMillis: 500,
-                volume: getEffectiveVolume(freshMeta),
-              }
-            );
-            if (loadSeq !== trackLoadSeqRef.current) {
-              await sound.unloadAsync().catch(() => undefined);
-              return;
-            }
-            soundRef.current = sound;
-            lastLoadedTrackKeyRef.current = trackKey;
-            sound.setOnPlaybackStatusUpdate(handleStatusUpdate);
-            await applyCurrentVolume(sound, freshMeta);
-            setIsPlayingState(true);
-            setError(null);
-          } catch (e) {
-            console.error("Track switch load error:", e);
-          }
-        });
-      }, 50);
+    // Nur laden, wenn Audio schon initiiert wurde
+    if (shouldLoadAudio) {
+      safeLoadTrack(freshMeta);
     }
 
-    // If the server already included the queue, apply it deterministically
-    if (Array.isArray(serverQueue)) {
-      applyQueueFromServer(serverQueue, freshMeta);
-    } else {
-      if (queue.length > 0) {
-        applyQueueFromServer(queue, freshMeta);
-      }
-    }
+    if (Array.isArray(serverQueue)) applyQueueFromServer(serverQueue, freshMeta);
+    else if (queue.length > 0) applyQueueFromServer(queue, freshMeta);
 
-    return newVer;
+    return metaVersionRef.current;
   }, [applyCurrentVolume, applyQueueFromServer, getEffectiveVolume, queue, updateServerTime]);
+
+  // ────────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     const init = async () => {
       try {
         const stored = await AsyncStorage.getItem("authToken");
-        if (!stored) {
-          router.replace("/");
-          return;
-        }
-
+        if (!stored) { router.replace("/"); return; }
         tokenRef.current = stored;
 
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true,
-          staysActiveInBackground: true,
-        });
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, staysActiveInBackground: true });
 
-        // Do not auto-start audio on navigation. User must press Play.
-        // Initial Metadata & Queue laden
         await fetchMetadata();
         await fetchQueue();
         await loadVolume();
         setupWebSocket();
         await validateToken();
 
-        // Kein HTTP-Polling mehr! WebSocket liefert alle Updates in Echtzeit
-        // Nur Auth-Token alle 10 Minuten refreshen
         authIntervalRef.current = setInterval(validateToken, 600000);
-        
-        // Sync-Check alle 10 Sekunden - korrigiert Timer-Drift ohne Performance-Verlust
         syncIntervalRef.current = setInterval(syncCheck, 10000);
         
-        // EIN einziger Timer - berechnet elapsed time basierend auf Server-Zeit + lokaler Zeitdifferenz
         localTimerRef.current = setInterval(() => {
           const now = Date.now();
-          const timeSinceUpdate = (now - serverTimestampRef.current) / 1000;  // In Sekunden
+          const timeSinceUpdate = (now - serverTimestampRef.current) / 1000;
           const calculatedElapsed = serverElapsedRef.current + timeSinceUpdate;
           const maxDuration = currentSongDurationRef.current;
           
-          // Begrenzen auf Song-Duration (immer ganze Sekunden)
-            if (maxDuration > 0 && calculatedElapsed > maxDuration) {
-              setLocalElapsedTime(Math.floor(maxDuration));
-            } else {
-              setLocalElapsedTime(Math.floor(calculatedElapsed));
-            }
-        }, 100);  // 10x pro Sekunde für smoothness
+          if (maxDuration > 0 && calculatedElapsed > maxDuration) setLocalElapsedTime(Math.floor(maxDuration));
+          else setLocalElapsedTime(Math.floor(calculatedElapsed));
+        }, 100);
         
-        console.log(`[Init] Started calculation-based timer`);
-      } catch (err) {
-        setError("Konnte Audio-Stream nicht starten.");
-      } finally {
-        setLoading(false);
-      }
+        // Autoplay aktivieren
+        if (metaRef.current) {
+          hasStartedPlaybackRef.current = true;
+          safeLoadTrack(metaRef.current);
+        }
+
+      } catch (err) { setError("Konnte Audio-Stream nicht starten."); } 
+      finally { setLoading(false); }
     };
 
     init();
 
     return () => {
-      if (localTimerRef.current) {
-        clearInterval(localTimerRef.current);
-        localTimerRef.current = null;
-      }
+      if (localTimerRef.current) clearInterval(localTimerRef.current);
+      if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
+      if (authIntervalRef.current) clearInterval(authIntervalRef.current);
+      if (wsReconnectTimeoutRef.current) clearTimeout(wsReconnectTimeoutRef.current);
+      if (fallbackTimeoutRef.current) clearTimeout(fallbackTimeoutRef.current);
 
-      if (syncIntervalRef.current) {
-        clearInterval(syncIntervalRef.current);
-        syncIntervalRef.current = null;
-      }
-
-      if (authIntervalRef.current) {
-        clearInterval(authIntervalRef.current);
-        authIntervalRef.current = null;
-      }
-
-      if (wsReconnectTimeoutRef.current) {
-        clearTimeout(wsReconnectTimeoutRef.current);
-        wsReconnectTimeoutRef.current = null;
-      }
-
-      if (volumeDebounceRef.current) {
-        clearTimeout(volumeDebounceRef.current);
-        volumeDebounceRef.current = null;
-      }
-
-      if (fallbackTimeoutRef.current) {
-        clearTimeout(fallbackTimeoutRef.current);
-        fallbackTimeoutRef.current = null;
-      }
-
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      if (soundRef.current) {
-        soundRef.current.unloadAsync().catch(() => undefined);
-        soundRef.current = null;
-      }
+      if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+      if (soundRef.current) { soundRef.current.unloadAsync().catch(() => undefined); soundRef.current = null; }
+      if (nextSoundRef.current) { nextSoundRef.current.unloadAsync().catch(() => undefined); nextSoundRef.current = null; }
+      
       hasStartedPlaybackRef.current = false;
       lastLoadedTrackKeyRef.current = "";
-      trackLoadSeqRef.current += 1;
     };
   }, []);
 
   const setupWebSocket = () => {
     if (!tokenRef.current) return;
-
-    // Clear any pending reconnect
-    if (wsReconnectTimeoutRef.current) {
-      clearTimeout(wsReconnectTimeoutRef.current);
-      wsReconnectTimeoutRef.current = null;
-    }
+    if (wsReconnectTimeoutRef.current) clearTimeout(wsReconnectTimeoutRef.current);
 
     try {
-      const wsUrl = WS_BASE + `/?token=${encodeURIComponent(tokenRef.current)}`;
-      const ws = new WebSocket(wsUrl);
+      const ws = new WebSocket(WS_BASE + `/?token=${encodeURIComponent(tokenRef.current)}`);
       wsRef.current = ws;
-
-      ws.onopen = () => {
-        console.log("WebSocket verbunden");
-      };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-
-          if (data?.type === "trackChanged" && data.meta) {
-            // WS provides authoritative meta; it may optionally include the queue
-            const dm = data.meta as any;
-            const serverQueue = Array.isArray(data.queue) ? data.queue : undefined;
-            handleTrackChanged(dm, serverQueue);
-            return;
-          }
-
-          if (data?.type === "queueUpdated" && data.queue) {
-            const q = Array.isArray(data.queue?.queue) ? data.queue.queue : data.queue;
-            applyQueueFromServer(q);
-            return;
-          }
-
-          if (data?.type === "volumeChanged" && typeof data.volume === "number") {
-            const newVol = Number(data.volume);
-            setVolumeState(newVol);
+          if (data?.type === "trackChanged" && data.meta) handleTrackChanged(data.meta, Array.isArray(data.queue) ? data.queue : undefined);
+          else if (data?.type === "queueUpdated" && data.queue) applyQueueFromServer(Array.isArray(data.queue?.queue) ? data.queue.queue : data.queue);
+          else if (data?.type === "volumeChanged" && typeof data.volume === "number") {
+            setVolumeState(Number(data.volume));
             applyCurrentVolume(soundRef.current);
-            return;
           }
-
-          if (data?.type === "settingsUpdated" && data.settings) {
-            applyCurrentVolume(soundRef.current);
-            return;
-          }
-        } catch (e) {
-          // Ignore malformed messages
-        }
+        } catch (e) {}
       };
-
-      ws.onerror = () => {
-        console.log("WebSocket Fehler");
-      };
-
-      ws.onclose = () => {
-        console.log("WebSocket geschlossen, versuche Reconnect in 3s...");
-        wsRef.current = null;
-        // Auto-Reconnect nach 3 Sekunden
-        wsReconnectTimeoutRef.current = setTimeout(() => {
-          setupWebSocket();
-        }, 3000);
-      };
-    } catch {
-      // Wenn WS gar nicht erreichbar ist, versuche erneut nach 5s
-      wsReconnectTimeoutRef.current = setTimeout(() => {
-        setupWebSocket();
-      }, 5000);
-    }
+      ws.onclose = () => { wsRef.current = null; wsReconnectTimeoutRef.current = setTimeout(setupWebSocket, 3000); };
+    } catch { wsReconnectTimeoutRef.current = setTimeout(setupWebSocket, 5000); }
   };
 
-  useEffect(() => {
-    const scrollView = queueScrollRef.current;
-    if (!scrollView) return;
-    const activeArrayIndex = queue.findIndex((item) => item.isPlaying);
-    if (activeArrayIndex === -1) return;
-
-    const scrollToActive = () => {
-      const y = queueItemLayoutRef.current[activeArrayIndex];
-      if (typeof y === "number" && typeof scrollView.scrollTo === "function") {
-        // scroll so the active item sits at the very top (small offset)
-        scrollView.scrollTo({ y: Math.max(y - 8, 0), animated: true });
-        return true;
-      }
-      return false;
-    };
-
-    // Wait for interactions/layout to finish, then try scrolling and retry longer
-    InteractionManager.runAfterInteractions(() => {
-      if (scrollToActive()) return;
-
-      let attempts = 0;
-      const id = setInterval(() => {
-        attempts += 1;
-        if (scrollToActive() || attempts > 20) {
-          clearInterval(id);
-        }
-      }, 120);
-    });
-  }, [queue, meta?.filename]);
-
-  // load current volume from server
   const loadVolume = async () => {
     if (!tokenRef.current) return;
     try {
-      const res = await fetch(`${API_BASE}/stream/control/volume`, {
-        headers: { Authorization: `Bearer ${tokenRef.current}` },
-      });
-      if (!res.ok) return;
-      const json = await res.json();
-      if (typeof json?.volume === "number") setVolumeState(json.volume);
-    } catch (e) {
-      // ignore
-    }
+      const res = await fetch(`${API_BASE}/stream/control/volume`, { headers: { Authorization: `Bearer ${tokenRef.current}` } });
+      if (res.ok) { const json = await res.json(); if (typeof json?.volume === "number") setVolumeState(json.volume); }
+    } catch (e) {}
   };
 
   const validateToken = async () => {
     if (!tokenRef.current) return;
     try {
-      const res = await fetch(`${API_BASE}/auth/validate`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "application/json" },
-      });
-
-      if (res.status === 401) {
-        await AsyncStorage.removeItem("authToken");
-        router.replace("/");
-        return;
-      }
-
-      if (!res.ok) return;
-
-      const json = await res.json();
-      if (json?.token && typeof json.token === "string") {
-        tokenRef.current = json.token;
-        await AsyncStorage.setItem("authToken", json.token);
-      }
-    } catch (e) {
-      // Ignore validation errors silently
-    }
+      const res = await fetch(`${API_BASE}/auth/validate`, { method: "POST", headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "application/json" } });
+      if (res.status === 401) { await AsyncStorage.removeItem("authToken"); router.replace("/"); return; }
+      if (res.ok) { const json = await res.json(); if (json?.token) { tokenRef.current = json.token; await AsyncStorage.setItem("authToken", json.token); } }
+    } catch (e) {}
   };
 
-  // Sync-Check: Prüft alle 10s ob lokaler Timer mit Server synchron ist
-  // Only correct drift when the server response matches the currently active song
-  // (both filename AND index must match). Never overwrite a newer WS `trackChanged`.
   const syncCheck = async () => {
     if (!tokenRef.current || !meta) return;
-
     try {
       const beforeVer = metaVersionRef.current;
-      const res = await fetch(`${API_BASE}/stream/meta/currentsong`, {
-        headers: { Authorization: `Bearer ${tokenRef.current}` },
-      });
-
+      const res = await fetch(`${API_BASE}/stream/meta/currentsong`, { headers: { Authorization: `Bearer ${tokenRef.current}` } });
       if (!res.ok) return;
-
       const json = await res.json();
       if (!json?.metadata) return;
 
       const sm = json.metadata;
-      const serverFilename = sm.filename;
-      const serverIndex = sm.index;
-      const serverElapsed = Number(sm.elapsed) || 0;
-      const serverDuration = Number(sm.duration) || 0;
+      if (meta.filename !== sm.filename || meta.index !== sm.index) return;
+      if (metaVersionRef.current !== beforeVer || pendingControlRef.current || Date.now() - (lastMetaUpdateRef.current || 0) < 1200) return;
 
-      // Require both filename AND index to match the currently active meta.
-      // If either is missing or differs, ignore the response entirely.
-      const filenameMatches = meta.filename && serverFilename && meta.filename === serverFilename;
-      const indexMatches = typeof meta.index === 'number' && typeof serverIndex === 'number' && meta.index === serverIndex;
-
-      if (!filenameMatches || !indexMatches) {
-        // Different song (or insufficient identifying info) — do not touch timer or meta
-        return;
-      }
-
-      // If a newer authoritative WS update arrived while we fetched, skip applying this HTTP result
-      if (metaVersionRef.current !== beforeVer) {
-        console.log('[Sync] Skipping sync because a newer WS update exists');
-        return;
-      }
-
-      // If an authoritative trackChanged arrived very recently, or we're awaiting one
-      // because of a user control, avoid racing with it.
-      // This prevents syncCheck (HTTP) from briefly overwriting the fresh WS update.
-      if (pendingControlRef.current || Date.now() - (lastMetaUpdateRef.current || 0) < 1200) {
-        // recent authoritative update or pending control — skip correction
-        console.log('[Sync] Skipping sync because a recent authoritative update or pending control exists');
-        return;
-      }
-
-      const currentLocal = localElapsedTime;
-      const diff = Math.abs(serverElapsed - currentLocal);
-
-      // Only correct for significant drift (>2s)
+      const diff = Math.abs((Number(sm.elapsed) || 0) - localElapsedTime);
       if (diff > 2) {
-        console.log(`[Sync] Correcting drift ${diff}s for ${serverFilename}#${serverIndex} (Local: ${currentLocal}s, Server: ${serverElapsed}s)`);
-
-        // Apply server time, but do NOT increment metaVersionRef — this is a correction, not a new authoritative meta.
-        updateServerTime(serverElapsed, serverDuration || 0);
+        updateServerTime(Number(sm.elapsed) || 0, Number(sm.duration) || 0);
         lastMetaUpdateRef.current = Date.now();
       }
-    } catch (e) {
-      // Ignore sync errors
-    }
+    } catch (e) {}
   };
 
-  const handleStatusUpdate = (status: AVPlaybackStatus) => {
-    if (!status.isLoaded) {
-      if ((status as any).error) {
-        console.error("Playback error:", (status as any).error);
-        setError("Fehler beim Abspielen.");
-      }
-      return;
-    }
-
-    setIsPlayingState(status.isPlaying);
-
-    // Song finished → tell server (fallback for songs without known duration)
-    if (status.didJustFinish) {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send("SONG_ENDED");
-      }
-    }
-  };
-
-  // ─── Track loading ──────────────────────────────────────────────────────────
-
-  const nextSoundRef = useRef<Audio.Sound | null>(null);
-
-  /**
-   * Load and optionally play the current server track.
-   * If `play` is true the sound starts immediately; otherwise it waits for
-   * the user to press Play.
-   */
-  const loadCurrentSong = async (play = false) => {
-    if (!tokenRef.current || !meta?.filename) return;
-    if (play) hasStartedPlaybackRef.current = true;
-
-    const fileUrl = `${API_BASE}/stream/file/${encodeURIComponent(meta.filename)}?token=${encodeURIComponent(tokenRef.current)}`;
-
-    try {
-      setPlaybackLoading(true);
-      const loadSeq = ++trackLoadSeqRef.current;
-      const currentMeta = metaRef.current ?? meta;
-      const trackKey = `${currentMeta?.filename || meta.filename}:${typeof currentMeta?.index === "number" ? currentMeta.index : ""}`;
-
-      // Unload old sound
-      if (soundRef.current) {
-        await soundRef.current.unloadAsync().catch(() => undefined);
-        soundRef.current = null;
-        lastLoadedTrackKeyRef.current = "";
-      }
-
-      // If we have a preloaded next-sound for THIS filename, promote it
-      // (nextSoundRef is preloaded for the NEXT song, so don't use it here directly)
-
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: fileUrl },
-        {
-          shouldPlay: play,
-          positionMillis: (serverElapsedRef.current || 0) * 1000,
-          progressUpdateIntervalMillis: 500,
-          volume: getEffectiveVolume(metaRef.current),
-        }
-      );
-
-      if (loadSeq !== trackLoadSeqRef.current) {
-        await sound.unloadAsync().catch(() => undefined);
-        return;
-      }
-
-      soundRef.current = sound;
-      lastLoadedTrackKeyRef.current = trackKey;
-      sound.setOnPlaybackStatusUpdate(handleStatusUpdate);
-
-      await applyCurrentVolume(sound);
-
-      setError(null);
-
-      if (play) {
-        setIsPlayingState(true);
-      }
-
-      // Preload next song in background
-      preloadNextSong();
-
-    } catch (err) {
-      console.error("loadCurrentSong error:", err);
-      setError("Song konnte nicht geladen werden.");
-    } finally {
-      setPlaybackLoading(false);
-    }
-  };
-
-  /**
-   * Preload the next song silently so the switch is instant.
-   */
   const preloadNextSong = async () => {
     if (!tokenRef.current) return;
     try {
-      const res = await fetch(`${API_BASE}/stream/prefetch`, {
-        headers: { Authorization: `Bearer ${tokenRef.current}` },
-      });
+      const res = await fetch(`${API_BASE}/stream/prefetch`, { headers: { Authorization: `Bearer ${tokenRef.current}` } });
       if (!res.ok) return;
       const json = await res.json();
       if (!json?.next?.filename) return;
 
-      const nextUrl = `${API_BASE}/stream/file/${encodeURIComponent(json.next.filename)}?token=${encodeURIComponent(tokenRef.current)}`;
-
-      // Unload any previous preload
-      if (nextSoundRef.current) {
-        await nextSoundRef.current.unloadAsync().catch(() => undefined);
-        nextSoundRef.current = null;
-      }
-
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: nextUrl },
-        { shouldPlay: false, volume: getEffectiveVolume(metaRef.current) }
-      );
+      if (nextSoundRef.current) await nextSoundRef.current.unloadAsync().catch(() => undefined);
+      const { sound } = await Audio.Sound.createAsync({ uri: `${API_BASE}/stream/file/${encodeURIComponent(json.next.filename)}?token=${encodeURIComponent(tokenRef.current)}` }, { shouldPlay: false, volume: getEffectiveVolume(metaRef.current) });
       nextSoundRef.current = sound;
-    } catch {
-      // preload failure is non-critical
-    }
-  };
-
-  // Start or resume the stream (called on first Play press)
-  const startStream = async (shouldPlay = false) => {
-    await loadCurrentSong(shouldPlay);
+    } catch {}
   };
 
   const fetchMetadata = async (force = false) => {
     if (!tokenRef.current) return;
     try {
       const beforeVer = metaVersionRef.current;
-      const res = await fetch(`${API_BASE}/stream/meta/currentsong`, {
-        headers: {
-          Authorization: `Bearer ${tokenRef.current}`,
-        },
-      });
-
-      if (res.status === 401) {
-        await AsyncStorage.removeItem("authToken");
-        router.replace("/");
-        return;
-      }
-
+      const res = await fetch(`${API_BASE}/stream/meta/currentsong`, { headers: { Authorization: `Bearer ${tokenRef.current}` } });
+      if (res.status === 401) { await AsyncStorage.removeItem("authToken"); router.replace("/"); return; }
       if (!res.ok) return;
-
       const json = await res.json();
-      if (json?.metadata) {
-        // If a newer WS update arrived while we were fetching, skip applying this HTTP result
-        if (metaVersionRef.current !== beforeVer) {
-          console.log('[HTTP] Stale metadata response ignored due to newer WS update');
-          return;
-        }
-
-        const newMeta = json.metadata;
-        const elapsed = newMeta.elapsed || 0;
-        const duration = newMeta.duration || 0;
-
-        // If a control is pending and this isn't a forced fallback, ignore the response.
-        if (pendingControlRef.current && !force) {
-          console.log('[HTTP] Ignoring metadata while control pending (not forced)');
-          return;
-        }
-
-        // If we are awaiting an authoritative trackChanged due to a user control,
-        // and the fallback still returns the previous song (same filename/index),
-        // ignore it — the server hasn't switched yet and applying it would overwrite
-        // our optimistic reset. If forced, allow applying regardless.
-        if (!force && pendingControlRef.current && meta) {
-          const respFilename = newMeta.filename;
-          const respIndex = newMeta.index;
-          if (respFilename === meta.filename && typeof respIndex === 'number' && respIndex === meta.index) {
-            console.log('[HTTP] Fallback returned same song while awaiting WS — ignoring to avoid overwrite');
-            return;
-          }
-        }
-
-        console.log(`[HTTP] Metadata fetched (fallback): "${newMeta.title}" - Elapsed: ${elapsed}s / Duration: ${duration}s`);
-
-        // If the filename changed compared to current meta, prefer a reset so the
-        // UI doesn't continue showing the previous song's elapsed.
-        let elapsedToApply = elapsed;
-        if (meta && newMeta.filename && meta.filename !== newMeta.filename) {
-          // New song detected — reset elapsed to 0 (or keep tiny offsets <=1s)
-          elapsedToApply = Math.min(1, elapsedToApply);
-          console.log('[HTTP] Detected filename change — resetting elapsed to', elapsedToApply);
-        }
-
-        // Mark this HTTP response as applied
+      if (json?.metadata && metaVersionRef.current === beforeVer) {
+        if (pendingControlRef.current && !force) return;
+        let elapsed = json.metadata.elapsed || 0;
+        if (meta && meta.filename !== json.metadata.filename) elapsed = Math.min(1, elapsed);
+        
         metaVersionRef.current += 1;
-
-        const newMetaObj: StreamMeta = {
-          filename: newMeta.filename,
-          title: newMeta.title,
-          author: newMeta.author,
-          duration: duration,
-          cover: newMeta.cover,
-          index: newMeta.index,
-          total: newMeta.total,
-          elapsed: elapsedToApply
-        };
+        const newMetaObj = { ...json.metadata, elapsed };
         setMetaAndRef(newMetaObj);
-        // Apply server time (clamped) — use the adjusted elapsed for filename changes
-        updateServerTime(elapsedToApply, duration);
+        updateServerTime(elapsed, json.metadata.duration || 0);
       }
-    } catch (err) {
-      // Ignore polling errors briefly
-    }
+    } catch (err) {}
   };
 
   const fetchQueue = async () => {
     if (!tokenRef.current) return;
-
     try {
       const beforeVer = metaVersionRef.current;
-      const res = await fetch(`${API_BASE}/stream/meta/queue`, {
-        headers: {
-          Authorization: `Bearer ${tokenRef.current}`,
-        },
-      });
-
-      if (!res.ok) return;
-
-      const json = await res.json();
-      if (Array.isArray(json?.metadata)) {
-        // Only apply queue if no newer WS meta update arrived while fetching
-        if (metaVersionRef.current !== beforeVer) {
-          console.log('[HTTP] Stale queue response ignored due to newer WS update');
-          return;
-        }
-        applyQueueFromServer(json.metadata as any[]);
+      const res = await fetch(`${API_BASE}/stream/meta/queue`, { headers: { Authorization: `Bearer ${tokenRef.current}` } });
+      if (res.ok) {
+        const json = await res.json();
+        if (Array.isArray(json?.metadata) && metaVersionRef.current === beforeVer) applyQueueFromServer(json.metadata);
       }
-    } catch (err) {
-      // Ignore Queue-Error so it doesn't block UI
-    }
+    } catch (err) {}
   };
 
   const togglePlayPause = async () => {
-    // If there's no sound instance yet, create and start playback
     if (!soundRef.current) {
-      await startStream(true);
+      if (metaRef.current) {
+        hasStartedPlaybackRef.current = true;
+        safeLoadTrack(metaRef.current);
+      }
       return;
     }
-
     const status = await soundRef.current.getStatusAsync();
     if (!status.isLoaded) return;
-
-    if (status.isPlaying) {
-      await soundRef.current.pauseAsync();
-    } else {
-      // Sync to current server position before resuming (the server kept playing while paused)
+    if (status.isPlaying) await soundRef.current.pauseAsync();
+    else {
       const elapsed = serverElapsedRef.current + (Date.now() - serverTimestampRef.current) / 1000;
-      const duration = currentSongDurationRef.current;
-      const seekMs = Math.max(0, Math.floor(
-        duration > 0 ? Math.min(elapsed, duration) * 1000 : elapsed * 1000
-      ));
-      try {
-        await soundRef.current.setPositionAsync(seekMs);
-      } catch {
-        // seek failed – just play from wherever it is
-      }
+      try { await soundRef.current.setPositionAsync(Math.max(0, Math.floor((currentSongDurationRef.current > 0 ? Math.min(elapsed, currentSongDurationRef.current) : elapsed) * 1000))); } catch {}
       await soundRef.current.playAsync();
     }
   };
 
   const callControl = async (path: string) => {
     if (!tokenRef.current) return;
-
     try {
-      await fetch(`${API_BASE}${path}`, {
-        headers: {
-          Authorization: `Bearer ${tokenRef.current}`,
-        },
-      });
-      
-      console.log("Control called:", path);
-      
-      // Bei Skip/Previous/JumpTo: Sofort Zeit zurücksetzen.
-      // WebSocket `trackChanged` ist die Primär-Quelle — wir setzen nur einen
-      // HTTP-Fallback, der nur ausgeführt wird, falls kein `trackChanged`
-      // innerhalb von 1500ms empfangen wurde. Dadurch vermeiden wir Rennbedingungen.
+      await fetch(`${API_BASE}${path}`, { headers: { Authorization: `Bearer ${tokenRef.current}` } });
       if (path.includes('/skip') || path.includes('/previous') || path.includes('/jumpto')) {
-        // Do NOT reset timer or meta here. WebSocket `trackChanged` is authoritative.
-        // We only schedule an HTTP fallback if no WS arrives in time.
-        // Clear any existing fallback
-        if (fallbackTimeoutRef.current) {
-          clearTimeout(fallbackTimeoutRef.current);
-          fallbackTimeoutRef.current = null;
-        }
-
-        // Mark that we're awaiting an authoritative trackChanged from server
+        if (fallbackTimeoutRef.current) clearTimeout(fallbackTimeoutRef.current);
         pendingControlRef.current = true;
-
-        // Optimistically reset the visible timer to 0 while waiting for WS.
-        // This avoids showing the old song's elapsed until the server responds.
         serverElapsedRef.current = 0;
         serverTimestampRef.current = Date.now();
         setLocalElapsedTime(0);
-
         const prevMetaTs = lastMetaUpdateRef.current;
-        // Set fallback to run after 1500ms only if no WS update occurred
         fallbackTimeoutRef.current = setTimeout(async () => {
-          // If lastMetaUpdateRef changed after issuing the control, WS delivered an update
-          if (lastMetaUpdateRef.current <= prevMetaTs) {
-            console.log('[Control] No WS trackChanged received — falling back to HTTP');
-            try {
-              await fetchMetadata(true);
-              await fetchQueue();
-            } catch (e) {
-              // ignore fallback errors
-            }
-          } else {
-            console.log('[Control] WS trackChanged received — skipping HTTP fallback');
-          }
-          fallbackTimeoutRef.current = null;
+          if (lastMetaUpdateRef.current <= prevMetaTs) { await fetchMetadata(true); await fetchQueue(); }
         }, 1500);
       }
-    } catch (err) {
-      Alert.alert("Fehler", "Steuerbefehl konnte nicht gesendet werden.");
-    }
+    } catch (err) { Alert.alert("Fehler", "Steuerbefehl konnte nicht gesendet werden."); }
   };
 
   const changeVolume = async (delta: number) => {
     const newV = Math.max(0, Math.min(200, Math.round((volumeRef.current || 0) + delta)));
-
-    // Apply immediately to local sound instance (optimistic, before WS echo arrives)
     setVolumeState(newV);
     applyCurrentVolume(soundRef.current);
-
-    // Send via WebSocket — server calls radio.setVolume() which broadcasts
-    // volumeChanged to ALL connected clients including this one.
-    // This is more reliable than HTTP fetch (no CORS, no debounce needed).
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(`VOLUME:${newV}`);
-    } else {
-      // Fallback: HTTP if WS not connected
-      if (tokenRef.current) {
-        fetch(`${API_BASE}/stream/control/sound/${newV}`, {
-          headers: { Authorization: `Bearer ${tokenRef.current}` },
-        }).catch(() => undefined);
-      }
-    }
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(`VOLUME:${newV}`);
+    else if (tokenRef.current) fetch(`${API_BASE}/stream/control/sound/${newV}`, { headers: { Authorization: `Bearer ${tokenRef.current}` } }).catch(() => undefined);
   };
 
-  const logout = async () => {
-    await AsyncStorage.removeItem("authToken");
-    router.replace("/");
-  };
+  const logout = async () => { await AsyncStorage.removeItem("authToken"); router.replace("/"); };
 
-  // Move a queue item from one array index to another.
-  // Performs an optimistic local update so the UI responds instantly;
-  // the server broadcasts the authoritative queueUpdated afterwards.
   const moveInQueue = async (from: number, to: number) => {
     if (from === to || !tokenRef.current) return;
-    // Optimistic update
     setQueue(prev => {
-      if (from < 0 || from >= prev.length || to < 0 || to >= prev.length) return prev;
       const q = [...prev];
-      const [moved] = q.splice(from, 1);
-      q.splice(to, 0, moved);
+      q.splice(to, 0, q.splice(from, 1)[0]);
       const activeIdx = q.findIndex(x => x.isPlaying);
-      return q.map((it, i) => ({
-        ...it,
-        index: i,
-        isPlaying: i === activeIdx,
-        hasBeenPlayed: i < activeIdx,
-      }));
+      return q.map((it, i) => ({ ...it, index: i, isPlaying: i === activeIdx, hasBeenPlayed: i < activeIdx }));
     });
-    try {
-      await fetch(`${API_BASE}/stream/control/move/${from}/${to}`, {
-        headers: { Authorization: `Bearer ${tokenRef.current}` },
-      });
-    } catch { /* WS will resync */ }
+    try { await fetch(`${API_BASE}/stream/control/move/${from}/${to}`, { headers: { Authorization: `Bearer ${tokenRef.current}` } }); } catch {}
   };
 
-  // Drag handler implementations — assigned every render so they capture fresh closures.
-  // The stable wrappers (stableDragStart/Move/End) never change reference.
   dragStartHandlerRef.current = (idx: number) => {
-    // Capture the screen-Y of the scroll view when the drag starts
     if (queueScrollRef.current && typeof (queueScrollRef.current as any).measureInWindow === "function") {
-      (queueScrollRef.current as any).measureInWindow((_x: number, y: number) => {
-        queueContainerTopRef.current = y;
-      });
+      (queueScrollRef.current as any).measureInWindow((_x: number, y: number) => { queueContainerTopRef.current = y; });
     }
-    dragFromIdxRef.current = idx;
-    dragToIdxRef.current   = idx;
-    setDragFromIdx(idx);
-    setDragToIdx(idx);
+    dragFromIdxRef.current = idx; dragToIdxRef.current = idx;
+    setDragFromIdx(idx); setDragToIdx(idx);
   };
 
   dragMoveHandlerRef.current = (moveY: number) => {
     if (dragFromIdxRef.current === null) return;
-    // Convert absolute screen-Y to position within the scroll view
     const relY = moveY - queueContainerTopRef.current + queueScrollOffsetRef.current;
     const positions = queueItemLayoutRef.current;
     const keys = Object.keys(positions).map(Number).sort((a, b) => a - b);
     if (keys.length === 0) return;
-    // Find the item whose midpoint is closest below relY
     let targetIdx = keys[keys.length - 1];
-    for (const k of keys) {
-      if (relY < (positions[k] ?? 0) + EST_QUEUE_ITEM_HEIGHT / 2) {
-        targetIdx = k;
-        break;
-      }
-    }
-    if (targetIdx !== dragToIdxRef.current) {
-      dragToIdxRef.current = targetIdx;
-      setDragToIdx(targetIdx);
-    }
+    for (const k of keys) { if (relY < (positions[k] ?? 0) + EST_QUEUE_ITEM_HEIGHT / 2) { targetIdx = k; break; } }
+    if (targetIdx !== dragToIdxRef.current) { dragToIdxRef.current = targetIdx; setDragToIdx(targetIdx); }
   };
 
   dragEndHandlerRef.current = () => {
-    const from = dragFromIdxRef.current;
-    const to   = dragToIdxRef.current;
-    dragFromIdxRef.current = null;
-    dragToIdxRef.current   = null;
-    setDragFromIdx(null);
-    setDragToIdx(null);
-    if (from !== null && to !== null && from !== to) {
-      moveInQueue(from, to);
-    }
+    const from = dragFromIdxRef.current; const to = dragToIdxRef.current;
+    dragFromIdxRef.current = null; dragToIdxRef.current = null;
+    setDragFromIdx(null); setDragToIdx(null);
+    if (from !== null && to !== null && from !== to) moveInQueue(from, to);
   };
 
   const progress = (() => {
     const duration = meta?.duration ?? currentSongDurationRef.current ?? 0;
     if (!duration) return 0;
-    const elapsed = Math.max(0, localElapsedTime || 0);
-    return Math.min(1, Math.max(0, elapsed / duration));
+    return Math.min(1, Math.max(0, Math.max(0, localElapsedTime || 0) / duration));
   })();
 
   const elapsedSeconds = localElapsedTime;
@@ -1245,20 +700,10 @@ export default function PlayerScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={[styles.headerRow, isDesktop && styles.headerRowDesktop]}>
         <Text style={styles.headerTitle} selectable={false}>MetaWave</Text>
         <View style={styles.headerIcons}>
-          <TouchableOpacity
-            style={styles.headerIcon}
-            onPress={() => {
-              if (Platform.OS === "web") {
-                window.location.reload();
-              } else {
-                router.replace("/player");
-              }
-            }}
-          >
+          <TouchableOpacity style={styles.headerIcon} onPress={() => { if (Platform.OS === "web") { window.location.reload(); } else { router.replace("/player"); } }}>
             <Ionicons name="refresh-outline" size={18} color="#737373" />
           </TouchableOpacity>
           <TouchableOpacity style={styles.headerIcon} onPress={() => router.push("/settings" as any)}>
@@ -1284,11 +729,7 @@ export default function PlayerScreen() {
           <View style={styles.metaBlock}>
             <Text style={styles.songTitle} selectable={false}>{meta?.title || "Unbekannter Titel"}</Text>
             <Text style={styles.songAuthor} selectable={false}>{meta?.author || "Unbekannter Künstler"}</Text>
-            {meta?.index !== undefined && meta?.total !== undefined && (
-              <Text style={styles.queueText} selectable={false}>
-                {meta.index + 1} / {meta.total}
-              </Text>
-            )}
+            {meta?.index !== undefined && meta?.total !== undefined && ( <Text style={styles.queueText} selectable={false}>{meta.index + 1} / {meta.total}</Text> )}
           </View>
 
           <View style={styles.progressBarWrapper}>
@@ -1303,9 +744,7 @@ export default function PlayerScreen() {
               </View>
               <View style={styles.progressRightBlock}>
                 <Text style={styles.progressLabel} selectable={false}>-{formatTime(remainingSeconds)}</Text>
-                {remainingSeconds > 0 && (
-                  <Text style={styles.progressEndLabel} selectable={false}>Endet um: {formatEndClockTime(remainingSeconds)}</Text>
-                )}
+                {remainingSeconds > 0 && ( <Text style={styles.progressEndLabel} selectable={false}>Endet um: {formatEndClockTime(remainingSeconds)}</Text> )}
               </View>
             </View>
           </View>
@@ -1318,11 +757,7 @@ export default function PlayerScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.playButton} onPress={togglePlayPause} disabled={playbackLoading}>
-              {playbackLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <FontAwesomeIcon icon={isPlaying ? faPause : faPlay} size={24} color="#FFFFFF" />
-              )}
+              {playbackLoading ? ( <ActivityIndicator color="#fff" /> ) : ( <FontAwesomeIcon icon={isPlaying ? faPause : faPlay} size={24} color="#FFFFFF" /> )}
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.secondaryButton} onPress={() => callControl("/stream/control/skip")}>
@@ -1334,36 +769,17 @@ export default function PlayerScreen() {
             <TouchableOpacity style={styles.chip} onPress={() => changeVolume(-10)}>
               <Text style={styles.chipText} selectable={false}>-10%</Text>
             </TouchableOpacity>
-
             <TouchableOpacity style={styles.chip} onPress={() => callControl("/stream/control/shuffle")}>
               <Text style={styles.chipText} selectable={false}>Shuffle</Text>
             </TouchableOpacity>
-
             <TouchableOpacity style={styles.chip} onPress={() => changeVolume(10)}>
               <Text style={styles.chipText} selectable={false}>+10%</Text>
             </TouchableOpacity>
           </View>
           </View>
 
-          {/* mobile bottom sheet */}
-          <Animated.View
-            style={[
-              styles.bottomSheet,
-              {
-                height: EXPANDED_HEIGHT,
-                transform: [
-                  {
-                    translateY: sheetTranslateY,
-                  },
-                ],
-              },
-            ]}
-          >
-            {/* Larger touch area for handle */}
-            <View 
-              {...panResponder.panHandlers} 
-              style={styles.sheetHandleTouchArea}
-            >
+          <Animated.View style={[ styles.bottomSheet, { height: EXPANDED_HEIGHT, transform: [{ translateY: sheetTranslateY }] } ]}>
+            <View {...panResponder.panHandlers} style={styles.sheetHandleTouchArea}>
               <View style={styles.sheetHandle} />
             </View>
             <Text style={styles.queueHeader} selectable={false}>Queue</Text>
@@ -1379,18 +795,11 @@ export default function PlayerScreen() {
               <View style={{ paddingBottom: 24 }}>
                 {queue.map((item, arrayIndex) => (
                   <QueueItemRow
-                    key={`${item.index}-${item.song}`}
-                    item={item}
-                    arrayIndex={arrayIndex}
-                    active={item.isPlaying}
-                    played={Boolean(item.hasBeenPlayed) && !item.isPlaying}
-                    isDragSource={dragFromIdx === arrayIndex}
-                    isDragTarget={dragToIdx === arrayIndex && dragFromIdx !== null && dragFromIdx !== arrayIndex}
-                    onLayout={stableOnLayout}
-                    onPress={() => { callControl(`/stream/control/jumpto/${item.index}`); collapseSheet(); }}
-                    onDragStart={stableDragStart}
-                    onDragMove={stableDragMove}
-                    onDragEnd={stableDragEnd}
+                    key={`${item.index}-${item.song}`} item={item} arrayIndex={arrayIndex}
+                    active={item.isPlaying} played={Boolean(item.hasBeenPlayed) && !item.isPlaying}
+                    isDragSource={dragFromIdx === arrayIndex} isDragTarget={dragToIdx === arrayIndex && dragFromIdx !== null && dragFromIdx !== arrayIndex}
+                    onLayout={stableOnLayout} onPress={() => { callControl(`/stream/control/jumpto/${item.index}`); collapseSheet(); }}
+                    onDragStart={stableDragStart} onDragMove={stableDragMove} onDragEnd={stableDragEnd}
                   />
                 ))}
               </View>
@@ -1398,10 +807,7 @@ export default function PlayerScreen() {
           </Animated.View>
         </View>
       ) : (
-        <ScrollView
-          contentContainerStyle={[styles.centerContent, isDesktop && styles.centerContentDesktop]}
-          showsVerticalScrollIndicator={false}
-        >
+        <ScrollView contentContainerStyle={[styles.centerContent, isDesktop && styles.centerContentDesktop]} showsVerticalScrollIndicator={false}>
           <View style={[styles.playerColumn, isDesktop && styles.playerColumnDesktop]}>
             {meta?.cover ? (
               <Image source={{ uri: meta.cover }} style={[styles.cover, isDesktop && styles.coverDesktop]} />
@@ -1414,11 +820,7 @@ export default function PlayerScreen() {
             <View style={styles.metaBlock}>
               <Text style={[styles.songTitle, isDesktop && styles.songTitleDesktop]} selectable={false}>{meta?.title || "Unbekannter Titel"}</Text>
               <Text style={[styles.songAuthor, isDesktop && styles.songAuthorDesktop]} selectable={false}>{meta?.author || "Unbekannter Künstler"}</Text>
-              {meta?.index !== undefined && meta?.total !== undefined && (
-                <Text style={styles.queueText} selectable={false}>
-                  {meta.index + 1} / {meta.total}
-                </Text>
-              )}
+              {meta?.index !== undefined && meta?.total !== undefined && ( <Text style={styles.queueText} selectable={false}>{meta.index + 1} / {meta.total}</Text> )}
             </View>
 
             <View style={styles.progressBarWrapper}>
@@ -1433,9 +835,7 @@ export default function PlayerScreen() {
                 </View>
                 <View style={styles.progressRightBlock}>
                   <Text style={[styles.progressLabel, isDesktop && styles.progressLabelDesktop]} selectable={false}>-{formatTime(remainingSeconds)}</Text>
-                  {remainingSeconds > 0 && (
-                    <Text style={[styles.progressEndLabel, isDesktop && styles.progressEndLabelDesktop]} selectable={false}>Endet um: {formatEndClockTime(remainingSeconds)}</Text>
-                  )}
+                  {remainingSeconds > 0 && ( <Text style={[styles.progressEndLabel, isDesktop && styles.progressEndLabelDesktop]} selectable={false}>Endet um: {formatEndClockTime(remainingSeconds)}</Text> )}
                 </View>
               </View>
             </View>
@@ -1446,7 +846,6 @@ export default function PlayerScreen() {
               <TouchableOpacity style={[styles.secondaryButton, isDesktop && styles.secondaryButtonDesktop]} onPress={() => callControl("/stream/control/previous")}>
                 <FontAwesomeIcon icon={faBackwardStep} size={22} color="#FFFFFF" />
               </TouchableOpacity>
-
               <TouchableOpacity style={[styles.playButton, isDesktop && styles.playButtonDesktop]} onPress={togglePlayPause} disabled={playbackLoading}>
                 {playbackLoading ? (
                   <ActivityIndicator color="#fff" />
@@ -1454,7 +853,6 @@ export default function PlayerScreen() {
                   <FontAwesomeIcon icon={isPlaying ? faPause : faPlay} size={26} color="#FFFFFF" />
                 )}
               </TouchableOpacity>
-
               <TouchableOpacity style={[styles.secondaryButton, isDesktop && styles.secondaryButtonDesktop]} onPress={() => callControl("/stream/control/skip")}>
                 <FontAwesomeIcon icon={faForwardStep} size={22} color="#FFFFFF" />
               </TouchableOpacity>
@@ -1464,11 +862,9 @@ export default function PlayerScreen() {
               <TouchableOpacity style={styles.chip} onPress={() => changeVolume(-10)}>
                 <Text style={styles.chipText} selectable={false}>-10%</Text>
               </TouchableOpacity>
-
               <TouchableOpacity style={styles.chip} onPress={() => callControl("/stream/control/shuffle")}>
                 <Text style={styles.chipText} selectable={false}>Shuffle</Text>
               </TouchableOpacity>
-
               <TouchableOpacity style={styles.chip} onPress={() => changeVolume(10)}>
                 <Text style={styles.chipText} selectable={false}>+10%</Text>
               </TouchableOpacity>
@@ -1476,7 +872,6 @@ export default function PlayerScreen() {
           </View>
 
           <View style={[styles.queueContainer, isDesktop && styles.queueContainerDesktop]}>
-            {/* Desktop queue handle like in screenshot */}
             {isDesktop && <View style={styles.queueHandleDesktop} />}
             <Text style={styles.queueHeader} selectable={false}>Queue</Text>
             <ScrollView
@@ -1485,25 +880,22 @@ export default function PlayerScreen() {
               contentContainerStyle={{ paddingBottom: 24 }}
               showsVerticalScrollIndicator
               scrollEnabled={dragFromIdx === null}
-              onScroll={(e) => { queueScrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+              onScroll={(e) => {
+                queueScrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+              }}
               scrollEventThrottle={16}
-              {...(Platform.OS === "web" ? ({ className: "queue-scroll" } as any) : {})}
+              {...(Platform.OS === "web"
+                ? ({ className: "queue-scroll" } as any)
+                : {})}
             >
               <View style={{ flex: 1 }}>
                 {queue.map((item, arrayIndex) => (
                   <QueueItemRow
-                    key={`${item.index}-${item.song}`}
-                    item={item}
-                    arrayIndex={arrayIndex}
-                    active={item.isPlaying}
-                    played={Boolean(item.hasBeenPlayed) && !item.isPlaying}
-                    isDragSource={dragFromIdx === arrayIndex}
-                    isDragTarget={dragToIdx === arrayIndex && dragFromIdx !== null && dragFromIdx !== arrayIndex}
-                    onLayout={stableOnLayout}
-                    onPress={() => callControl(`/stream/control/jumpto/${item.index}`)}
-                    onDragStart={stableDragStart}
-                    onDragMove={stableDragMove}
-                    onDragEnd={stableDragEnd}
+                    key={`${item.index}-${item.song}`} item={item} arrayIndex={arrayIndex}
+                    active={item.isPlaying} played={Boolean(item.hasBeenPlayed) && !item.isPlaying}
+                    isDragSource={dragFromIdx === arrayIndex} isDragTarget={dragToIdx === arrayIndex && dragFromIdx !== null && dragFromIdx !== arrayIndex}
+                    onLayout={stableOnLayout} onPress={() => callControl(`/stream/control/jumpto/${item.index}`)}
+                    onDragStart={stableDragStart} onDragMove={stableDragMove} onDragEnd={stableDragEnd}
                   />
                 ))}
               </View>
@@ -1511,13 +903,7 @@ export default function PlayerScreen() {
           </View>
         </ScrollView>
       )}
-      
-      {/* Mobile back button (like settings) */}
-      {!isDesktop && (
-        null
-      )}
 
-      {/* Footer - only on desktop */}
       {isDesktop && (
         <View style={[styles.footer, styles.footerDesktop]}>
           <View style={styles.footerLeft}>
