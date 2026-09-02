@@ -12,12 +12,6 @@ CREATE DATABASE IF NOT EXISTS database_metawave;
 USE database_metawave;
 
 -- Create Tables (if not exists)
-CREATE TABLE IF NOT EXISTS signal_notificationgroup (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  group_id VARCHAR(255) NOT NULL UNIQUE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS wave_tokens (
   id INT AUTO_INCREMENT PRIMARY KEY,
   token VARCHAR(255) NOT NULL,

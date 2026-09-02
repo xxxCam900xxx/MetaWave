@@ -24,8 +24,6 @@ Hier werden alle Endpunkte mit ihrem Zweck sowie allen möglichen `Headern`, `Pa
     - [POST `/stream/settings/monotone/reduce-loud`](#post-streamsettingsmonotonereduce-loud)
     - [POST `/stream/settings/artist-distance`](#post-streamsettingsartist-distance)
   - [Notification Service](#notification-service)
-    - [POST `/notification/signal/invite`](#post-notificationsignalinvite)
-    - [POST `/notification/signal/leave`](#post-notificationsignalleave)
     - [POST `/notification/email/invite`](#post-notificationemailinvite)
     - [POST `/notification/email/leave`](#post-notificationemailleave)
     - [GET `/notification/run-job`](#get-notificationrun-job)
@@ -320,42 +318,6 @@ Konfiguriert die minimale Anzahl von Songs zwischen Auftritten desselben Künstl
 
 ## Notification Service
 
-### POST `/notification/signal/invite`
-Dieser Endpunkt ist dazu da, dass man ohne Authentifizierung den Service in eine Signal Gruppe einladen kann.
-
-**Body**
-```json
-{
-    "groupId": "string"
-}
-```
-
-**Response**
-```json
-{
-    "status": 201,
-    "message": "SignalGroup was Successfully added"
-}
-```
-
-### POST `/notification/signal/leave`
-Für den Endpunkt `/notification/signal/invite` brauchen wir auch einen Endpunkt der dazu da ist das man die Notification von der Signal Gruppe wieder entfernen kann.
-
-**Body**
-```json
-{
-    "groupId": "string"
-}
-```
-
-**Response**
-```json
-{
-    "status": 200,
-    "message": "SignalGroup was Successfully deleted"
-}
-```
-
 ### POST `/notification/email/invite`
 Mit diesem Endpunkt kann man eine E-Mail-Adresse für Benachrichtigungen hinterlegen. Bei der Registrierung wird der aktuelle WaveToken direkt per Mail an diese Adresse geschickt.
 
@@ -393,12 +355,12 @@ Dieser Endpunkt ist dazu da, eine zuvor registrierte E-Mail-Adresse wieder aus d
 ```
 
 ### GET `/notification/run-job`
-Dieser Endpunkt dient dazu, den Batch-Job erneut auszuführen, wenn etwas schiefgelaufen ist oder zu Testzwecken. Der Job generiert (falls nötig) einen neuen WaveToken und verschickt ihn an alle hinterlegten Signal-Gruppen und E-Mail-Empfänger.
+Dieser Endpunkt dient dazu, den Batch-Job erneut auszuführen, wenn etwas schiefgelaufen ist oder zu Testzwecken. Der Job generiert (falls nötig) einen neuen WaveToken und verschickt ihn an alle hinterlegten E-Mail-Empfänger.
 
 **Response**
 ```json
 {
     "status": 200,
-    "message": "Signal Notification job executed"
+    "message": "Email notification job executed"
 }
 ```

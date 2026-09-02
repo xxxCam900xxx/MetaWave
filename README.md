@@ -82,7 +82,7 @@ Detaillierte Setup-Anweisungen finden Sie in [docker/README.md](docker/README.md
 - **Backend Server**: Node.js mit Express
 - **Datenbank**: MySQL für User-Management und Metadaten
 - **Downloader**: Python-basierter YouTube-zu-Audio Converter
-- **Notification Service**: Signal/WhatsApp Integration für Token-Verteilung
+- **Notification Service**: E-Mail-Benachrichtigungen für die Token-Verteilung
 
 ### Services
 
@@ -90,7 +90,7 @@ Detaillierte Setup-Anweisungen finden Sie in [docker/README.md](docker/README.md
 |---------|------------|-------------|
 | **Authentication** | Node.js + JWT | Monatliche Wave-Token Generation |
 | **Radio Engine** | Node.js + WebSocket | Audio-Streaming & Kontrolle |
-| **Notification** | Python + Signal-CLI | Token-Verteilung |
+| **Notification** | Node.js + Nodemailer | Token-Verteilung |
 | **Downloader** | Python + yt-dlp | YouTube-zu-Audio Konvertierung |
 
 ## Dokumentation
@@ -142,7 +142,7 @@ Wichtige Endpunkte:
 - `GET /auth/login?wavetoken=...` - URL-basierte Authentifizierung (neu!)
 - `GET /stream` - Audio-Stream abrufen
 - `GET /stream/control/skip` - Nächsten Song abspielen
-- `POST /notification/signal/invite` - Signal-Einladung senden
+- `POST /notification/email/invite` - E-Mail-Benachrichtigungen aktivieren
 
 ### URL-basierter Login
 
@@ -166,7 +166,7 @@ Mehr Details: [URL_LOGIN.md](URL_LOGIN.md) | Demo: [URL_LOGIN_DEMO.html](concept
 Erstellen Sie `.env` Dateien für:
 - Database-Konfiguration
 - YouTube API Credentials
-- Signal-CLI Setup
+- SMTP-Konfiguration für E-Mail-Benachrichtigungen
 - JWT Secrets
 
 Beispiel-Konfigurationen finden Sie in den jeweiligen Docker-Ordnern.

@@ -69,9 +69,6 @@ export default function RootLayout() {
       case "settings":
         title = "MetaWave - Einstellungen";
         break;
-      case "invite":
-        title = "MetaWave - Signal Notifier";
-        break;
       case "email":
         title = "MetaWave - E-Mail Notifier";
         break;

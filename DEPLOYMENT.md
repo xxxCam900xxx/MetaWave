@@ -132,10 +132,6 @@ In jedem der Service-Verzeichnisse unter `docker/` müssen `.env`-Dateien vorhan
 	AUTH_SECRET=<random_secret>
 	AUTH_TOKEN_EXPIRY=3600
 
-	# Signal (Notifications)
-	SIGNAL_REST_URL=http://signal-api:8000
-	SIGNAL_NUMBER=+41798878717
-
 	# Standard-Nachricht für neue WaveTokens
 	STANDARD_NOTIFICATION_MESSAGE=Neuer WaveToken wurde generiert. Verwende ihn zum Login.
 
@@ -154,7 +150,7 @@ In jedem der Service-Verzeichnisse unter `docker/` müssen `.env`-Dateien vorhan
 
 3. Speichern: `Ctrl+O`, Enter, dann `Ctrl+X`.
 
-Passe insbesondere `PLAYLIST_URL`, `AUTH_SECRET` und `SIGNAL_NUMBER` an deine Umgebung an.
+Passe insbesondere `PLAYLIST_URL` und `AUTH_SECRET` an deine Umgebung an.
 
 ### 3.3 Datenbank: docker/metawave_database/.env
 
@@ -197,21 +193,18 @@ docker compose -f compose.enviroment.yaml up -d database
 # Warte 10-15 Sekunden bis DB bereit ist
 sleep 15
 
-# 2) Signal REST API
-docker compose -f compose.enviroment.yaml up -d signal-api
-
-# 3) Downloader (lädt Playlist herunter und beendet sich)
+# 2) Downloader (lädt Playlist herunter und beendet sich)
 # Für große Playlists: Siehe Orchestrator-Anleitung unten
 docker compose -f compose.enviroment.yaml up downloader
 
-# 4) LUFS-Analyse durchführen (EBU R128 Broadcasting-Standard)
+# 3) LUFS-Analyse durchführen (EBU R128 Broadcasting-Standard)
 # Analysiert alle Songs und speichert Loudness-Werte in metadata.json
 docker compose -f compose.enviroment.yaml run --rm downloader python -u reanalyze_lufs.py
 
-# 5) Radio / API
+# 4) Radio / API
 docker compose -f compose.enviroment.yaml up -d radio
 
-# 6) WebApp
+# 5) WebApp
 docker compose -f compose.enviroment.yaml up -d app
 ```
 
@@ -221,7 +214,6 @@ docker compose -f compose.enviroment.yaml up -d app
 	- [docker/metawave_database/compose.database.yaml](docker/metawave_database/compose.database.yaml)
 	- [docker/metawave_server/compose.server.yaml](docker/metawave_server/compose.server.yaml)
 	- [docker/metawave_app/compose.app.yaml](docker/metawave_app/compose.app.yaml)
-	- [docker/signal_cli/compose.signal.yaml](docker/signal_cli/compose.signal.yaml)
 
 ### 4.1 Alternative: Orchestrator für große Playlists (empfohlen)
 
@@ -279,7 +271,6 @@ Relevante Container-Namen:
 - `database` (MySQL/MariaDB)
 - `radio` (Radio & Auth API)
 - `downloader` (Playlist-Downloader, läuft i. d. R. einmal durch)
-- `signal-api` (Signal REST API)
 - `app` (WebApp)
 
 ### 4.3 Troubleshooting Deployment
@@ -365,152 +356,13 @@ sudo ufw allow 80/tcp
 
 ---
 
-## 5. Signal (Notifications) auf der VM einrichten
-
-Damit Benachrichtigungen funktionieren, muss die Nummer in `SIGNAL_NUMBER` im `signal-api` Container registriert werden.
-
-### 5.1 Voraussetzungen prüfen
-
-```bash
-# Ist signal-api Container am laufen?
-docker compose -f compose.enviroment.yaml ps signal-api
-
-# Falls nicht, starten:
-docker compose -f compose.enviroment.yaml up -d signal-api
-
-# Logs prüfen
-docker compose -f compose.enviroment.yaml logs --tail 50 signal-api
-```
-
-### 5.2 Shell im signal-api Container öffnen
-
-```bash
-cd ~/MetaWave/docker
-
-docker compose -f compose.enviroment.yaml exec signal-api sh
-```
-
-Du solltest jetzt eine Shell im Container haben (`/home #`).
-
-### 5.3 Captcha-Token erzeugen
-
-1. Öffne auf deinem lokalen Rechner im Browser:  
-	 https://signalcaptchas.org/registration/generate.html
-2. Löse das Captcha
-3. Rechtsklick auf „Open Signal“ → Link-Adresse kopieren
-4. Aus der URL den Wert hinter `token=` kopieren
-
-**Beispiel-URL:**
-```
-signalcaptcha://signal-hcaptcha.5cc6d2e8-519a-4042-9e38-3522e26c85f1.registration
-```
-
-**Token:** `signalcaptcha://signal-hcaptcha.5cc6d2e8-519a-4042-9e38-3522e26c85f1.registration`
-
-### 5.4 Nummer registrieren
-
-Ersetze `+<number>` mit deiner `SIGNAL_NUMBER` aus `.env`:
-
-```sh
-signal-cli -u +41798878717 register --captcha signalcaptcha://signal-hcaptcha.5cc6d2e8-519a-4042-9e38-3522e26c85f1.registration
-```
-
-**Erwartete Ausgabe:**
-```
-Registration successful
-```
-
-### 5.5 Code verifizieren
-
-Du erhältst per SMS oder Anruf einen 6-stelligen Code:
-
-```sh
-signal-cli -u +41798878717 verify 123456
-```
-
-**Erwartete Ausgabe:**
-```
-Verification successful
-```
-
-### 5.6 Prüfung & Test
-
-**Im Container:**
-
-```sh
-# Zeige registrierte Geräte
-signal-cli -u +41798878717 listDevices
-
-# Sollte dein Device auflisten
-```
-
-**Container verlassen:**
-
-```sh
-exit
-```
-
-**Test von außen (auf VM):**
-
-```bash
-# Signal API Health Check
-curl http://localhost:5000/v1/about
-
-# Manueller Notification-Test
-curl -X GET http://localhost:8000/api/notification/run-job
-```
-
-### 5.7 Troubleshooting Signal
-
-**Problem: "Invalid Captcha Token"**
-
-Lösung:
-- Token ist abgelaufen (max. 5 Minuten gültig)
-- Erzeuge neuen Token auf signalcaptchas.org
-- Kopiere komplette URL inklusive `signalcaptcha://`
-
-**Problem: "Number already registered"**
-
-Lösung:
-- Nummer ist bereits in einem anderen Signal-Client registriert
-- Nutze `--voice` Flag für Anruf statt SMS:
-  ```sh
-  signal-cli -u +41798878717 register --voice --captcha <TOKEN>
-  ```
-
-**Problem: "No verification code received"**
-
-Lösung:
-- Prüfe Nummernformat (mit Landesvorwahl, z.B. +41)
-- Versuche `--voice` für Anruf
-- Warte 2-3 Minuten, manchmal verzögert
-
-**Problem: Container startet nicht**
-
-```bash
-# Logs prüfen
-docker compose -f compose.enviroment.yaml logs signal-api
-
-# Volume prüfen (Permissions)
-docker volume inspect metawave_signal-data
-
-# Notfalls Volume neu erstellen
-docker compose -f compose.enviroment.yaml down
-docker volume rm metawave_signal-data
-docker compose -f compose.enviroment.yaml up -d signal-api
-```
-
----
-
-## 6. Erreichbarkeit der Anwendung
+## 5. Erreichbarkeit der Anwendung
 
 Standard-Ports (auf der VM):
 
 - `80` → WebApp (Client)
 - `8000` → API (Radio & Auth Service)
-- `5000` → Signal REST API
-
-### 6.1 Zugriff von aussen (ohne Domain)
+### 5.1 Zugriff von aussen (ohne Domain)
 
 - Öffne in deinem Browser: `http://<VM_PUBLIC_IP>` → MetaWave WebApp
 - API-Endpoint-Test:
@@ -556,7 +408,7 @@ cd ~/MetaWave/docker
 
 docker compose -f compose.enviroment.yaml logs -f server
 # oder
-docker compose -f compose.enviroment.yaml logs -f client database signal-api
+docker compose -f compose.enviroment.yaml logs -f client database
 ```
 
 ### 7.3 Images aktualisieren / neue App-Version

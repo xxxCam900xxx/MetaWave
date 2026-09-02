@@ -40,8 +40,7 @@ Dieses Dokument hilft dir, das Projekt zu verstehen und effektiv beizutragen.
     - [1. EBU R128 / LUFS Normalisierung](#1-ebu-r128--lufs-normalisierung)
     - [2. Playlist-Download-Strategie](#2-playlist-download-strategie)
     - [3. WebSocket-Streaming](#3-websocket-streaming)
-    - [4. Signal-Notifications](#4-signal-notifications)
-    - [5. WaveToken (Invite-System)](#5-wavetoken-invite-system)
+    - [4. WaveToken (Invite-System)](#4-wavetoken-invite-system)
   - [Bekannte Probleme \& Roadmap](#bekannte-probleme--roadmap)
     - [Bekannte Probleme](#bekannte-probleme)
     - [Roadmap / Feature-Ideen](#roadmap--feature-ideen)
@@ -63,7 +62,7 @@ Dieses Dokument hilft dir, das Projekt zu verstehen und effektiv beizutragen.
 - **YouTube Playlist Integration**: Automatischer Download und Verwaltung von Playlists
 - **EBU R128 Loudness Normalization**: Professionelle Lautstärke-Normalisierung nach Broadcasting-Standard
 - **WebSocket Streaming**: Echtzeit-Audio-Streaming mit Metadaten
-- **Signal Notifications**: Push-Benachrichtigungen über Signal Messenger
+- **E-Mail Notifications**: Benachrichtigungen über E-Mail
 - **React Native App**: Cross-Platform Mobile App (iOS/Android/Web)
 - **RESTful API**: Vollständige Steuerung über HTTP/WebSocket
 
@@ -83,7 +82,7 @@ Dieses Dokument hilft dir, das Projekt zu verstehen und effektiv beizutragen.
 - **Python 3.11+** - YouTube Downloader & LUFS-Analyse
 - **FFmpeg 7+** - Audio-Transcoding & Normalisierung
 - **MariaDB 11+** - Persistente Datenspeicherung
-- **Signal CLI** - Notification-Service
+- **Nodemailer** - E-Mail-Notification-Service
 
 ### Frontend
 
@@ -123,7 +122,6 @@ Dieses Dokument hilft dir, das Projekt zu verstehen und effektiv beizutragen.
    ```bash
    cd docker
    docker compose -f compose.enviroment.yaml up -d database
-   docker compose -f compose.enviroment.yaml up -d signal-api
    docker compose -f compose.enviroment.yaml run --rm downloader
    docker compose -f compose.enviroment.yaml run --rm downloader python -u reanalyze_lufs.py
    docker compose -f compose.enviroment.yaml up -d radio
@@ -150,7 +148,7 @@ MetaWave/
 │   │   │   ├── index.tsx               # Login-Screen
 │   │   │   ├── player.tsx              # Radio-Player
 │   │   │   ├── settings.tsx            # Einstellungen
-│   │   │   └── invite.tsx              # Einladungen
+│   │   │   └── email.tsx               # E-Mail-Benachrichtigungen
 │   │   └── src/                        # Shared Code
 │   │       ├── config.ts               # API-Konfiguration
 │   │       └── styles/                 # Styling
@@ -173,7 +171,7 @@ MetaWave/
 │   │       │   ├── AuthLogic.js
 │   │       │   ├── AuthRouter.js
 │   │       │   └── WaveTokenLogic.js
-│   │       ├── notification/           # Signal-Integration
+│   │       ├── notification/           # E-Mail-Benachrichtigungen
 │   │       │   ├── NotificationLogic.js
 │   │       │   ├── NotificationRouter.js
 │   │       │   └── NotificationJob.js
@@ -197,7 +195,6 @@ MetaWave/
 │   ├── metawave_app/                   # App-Container
 │   ├── metawave_server/                # Server-Container
 │   ├── metawave_database/              # DB-Container
-│   └── signal_cli/                     # Signal-Container
 │
 ├── README.md                           # Projekt-README
 ├── DEPLOYMENT.md                       # VM-Deployment-Guide
@@ -489,15 +486,7 @@ Für große Playlists (>300 Videos):
 
 **WebSocket-API:** [concept/ENDPOINTS.md](concept/ENDPOINTS.md#websocket) - Message-Typen, Reconnect-Logik
 
-### 4. Signal-Notifications
-
-- **Notification-Job**: Cron-Job alle 30 Minuten
-- **Trigger**: Neuer Song startet → Signal-Nachricht
-- **Inhalt**: Titel, Interpret, YouTube-URL
-
-**Setup-Anleitung:** [DEPLOYMENT.md](DEPLOYMENT.md#5-signal-notifications-auf-der-vm-einrichten) - Captcha-Token, Registrierung, Troubleshooting
-
-### 5. WaveToken (Invite-System)
+### 4. WaveToken (Invite-System)
 
 - **Generierung**: User kann Invite-Links erstellen
 - **Gültigkeit**: 7 Tage (konfigurierbar)
@@ -520,7 +509,7 @@ Für große Playlists (>300 Videos):
 - [ ] Song-Voting (User können nächsten Song wählen)
 - [ ] History (gespielte Songs speichern)
 - [ ] Playlist-Editor (Songs hinzufügen/entfernen ohne YouTube)
-- [ ] Mobile App Push-Notifications (nativ, nicht nur Signal)
+- [ ] Mobile App Push-Notifications
 - [ ] Audio-Visualizer (Spektrum-Analyse im Player)
 - [ ] Podcast-Support (neben YouTube)
 

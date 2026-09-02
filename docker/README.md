@@ -10,13 +10,9 @@
     - [LUFS-Analyse für bereits heruntergeladene Songs](#lufs-analyse-für-bereits-heruntergeladene-songs)
       - [Helper-Skripte (für manuelle Analyse)](#helper-skripte-für-manuelle-analyse)
       - [Manuelle Docker-Befehle](#manuelle-docker-befehle)
-  - [Zusatz: signal-cli konfigurieren (signal-cli-rest-api)](#zusatz-signal-cli-konfigurieren-signal-cli-rest-api)
-    - [Schritt-für-Schritt Anleitung](#schritt-für-schritt-anleitung)
   - [Schnelltests](#schnelltests)
-    - [Signal-API Status prüfen:](#signal-api-status-prüfen)
     - [Radio-API testen:](#radio-api-testen)
     - [Notification Job manuell auslösen:](#notification-job-manuell-auslösen)
-    - [Signal Testnachricht senden:](#signal-testnachricht-senden)
     - [Metadata \& LUFS-Daten prüfen:](#metadata--lufs-daten-prüfen)
     - [Container-Logs ansehen:](#container-logs-ansehen)
   - [Step 3 | Start Coding!](#step-3--start-coding)
@@ -42,7 +38,6 @@ Das Projekt verwendet `docker/compose.enviroment.yaml`, welches folgende Compose
 - `metawave_database/compose.database.yaml`
 - `metawave_server/compose.server.yaml`
 - `metawave_app/compose.app.yaml`
-- `signal_cli/compose.signal.yaml`
 
 ## Step 1 | Enviroment Files erstellen
 
@@ -73,13 +68,6 @@ DB_NAME=database_metawave
 # Auth secret for JWTs
 AUTH_SECRET=<random_secret>
 AUTH_TOKEN_EXPIRY=3600
-
-# --- Signal (notifications) configuration ---
-# Interner Zugriff auf den signal-cli-rest-api Container
-SIGNAL_REST_URL=http://signal-api:8000
-
-# Die Nummer, die im signal-api Container registriert ist
-SIGNAL_NUMBER=+41XXXXXXXX
 
 # Standard notification text
 STANDARD_NOTIFICATION_MESSAGE=Neuer WaveToken wurde generiert. Verwende ihn zum Login.
@@ -134,7 +122,7 @@ Verwenden Sie den folgenden Befehl im Verzeichnis `docker`:
 docker compose -f compose.enviroment.yaml up --build
 ```
 
-Damit werden Datenbank, Server, Downloader, Signal-API und Client gemäss der inkludierten Dateien gestartet.
+Damit werden Datenbank, Server, Downloader und Client gemäss der inkludierten Dateien gestartet.
 
 ### Downloader in 300er-Chunks mit Orchestrator ausführen
 
@@ -319,95 +307,7 @@ Der Monotone Equalizer nutzt diese LUFS-Werte für professionelle Broadcast-Qual
 
 ---
 
-## Zusatz: signal-cli konfigurieren (signal-cli-rest-api)
-
-Dieses Projekt enthält einen `signal-api`-Service im Compose-Setup (Image: `bbernhard/signal-cli-rest-api`). Nachdem Sie `docker compose up` ausgeführt haben, müssen Sie die Absender-Telefonnummer für den Service registrieren und verifizieren.
-
-**Wichtig:** Die Nummer in `SIGNAL_NUMBER` (in `metawave_server/.env`) muss mit der hier registrierten Nummer übereinstimmen.
-
-### Schritt-für-Schritt Anleitung
-
-**1) Shell im signal-api Container öffnen:**
-
-```powershell
-docker compose -f .\compose.enviroment.yaml exec signal-api sh
-```
-
-Wenn der Container nicht läuft, starten Sie ihn zuerst:
-
-```powershell
-docker compose -f .\compose.enviroment.yaml up -d signal-api
-```
-
-**2) Captcha-Token erzeugen:**
-
-- Öffnen Sie https://signalcaptchas.org/registration/generate.html in Ihrem Browser
-- Lösen Sie das Captcha
-- Rechtsklick auf "Open Signal" → "Link-Adresse kopieren"
-- Kopieren Sie den Token-Wert aus der URL (nach `token=`)
-
-**3) Nummer im Container registrieren:**
-
-Ersetzen Sie `+41XXXXXXXX` durch Ihre `SIGNAL_NUMBER`:
-
-```sh
-signal-cli -u +41XXXXXXXX register --captcha <TOKEN>
-```
-
-Beispiel:
-```sh
-signal-cli -u +41798878717 register --captcha signalcaptcha.1234567890.abcdefgh
-```
-
-**4) SMS/Anruf-Code verifizieren:**
-
-Sie erhalten per SMS oder Anruf einen 6-stelligen Code:
-
-```sh
-signal-cli -u +41XXXXXXXX verify <CODE>
-```
-
-Beispiel:
-```sh
-signal-cli -u +41798878717 verify 123456
-```
-
-**5) Registrierung prüfen (Optional):**
-
-```sh
-signal-cli -u +41XXXXXXXX listDevices
-```
-
-Wenn Geräte aufgelistet werden, war die Registrierung erfolgreich.
-
-**6) Container verlassen:**
-
-```sh
-exit
-```
-
-Hinweise:
-- Registrierung persistent machen: Die Compose-Datei bindet ein Volume `signal-data` in den `signal-api`-Container (`/home/.local/share/signal-cli`). Bewahren Sie dieses Volume zwischen Neustarts, damit Sie nicht erneut registrieren müssen.
-- Wenn die Registrierung fehlschlägt, prüfen Sie die Container-Logs:
-
-```powershell
-docker compose -f .\compose.enviroment.yaml logs --tail 200 signal-api
-```
-
-Häufige Probleme:
-- Captcha-Token abgelaufen oder ungültig → Token erneut unter signalcaptchas.org erzeugen
-- SMS/Anruf wird nicht zugestellt → versuchen Sie `register --voice` oder prüfen Sie das Nummernformat
-- Volume fehlt → stellen Sie sicher, dass `signal-data` in der Compose-Datei vorhanden ist
-
 ## Schnelltests
-
-### Signal-API Status prüfen:
-
-```powershell
-curl http://localhost:5000/v1/about
-```
-
-Erwartete Antwort: JSON mit Version und Build-Information.
 
 ### Radio-API testen:
 
@@ -423,16 +323,6 @@ curl http://localhost:8000/api/radio/settings -H "Authorization: Bearer <TOKEN>"
 
 ```powershell
 curl -X GET http://localhost:8000/api/notification/run-job
-```
-
-### Signal Testnachricht senden:
-
-Ersetzen Sie `+41XXXXXXXX` durch eine verifizierte Nummer:
-
-```powershell
-curl -X POST http://localhost:5000/v2/send \
-  -H "Content-Type: application/json" \
-  -d '{"message":"Test von MetaWave","number":"+41XXXXXXXX","recipients":["+41YYYYYYYY"]}'
 ```
 
 ### Metadata & LUFS-Daten prüfen:
@@ -463,4 +353,3 @@ docker compose -f .\compose.enviroment.yaml logs --tail 100 downloader
 Die folgenden Ports werden verwendet:
 - `:8000` → (API) | [Radio & Auth Service](http://localhost:8000)
 - `:80` → (Client) | [WebApp](http://localhost:80)
-- `5000` → Signal REST API

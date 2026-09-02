@@ -1,9 +1,6 @@
-import db from "../database/DatabaseLogic.js";
 import { getCurrentTokenPeriod, getMonthlyCode } from "../middleware/WaveTokenLogic.js";
-import { listGroups, sendMessageToGroup, listEmailRecipients, sendEmailNotification } from "./NotificationLogic.js";
+import { listEmailRecipients, sendEmailNotification } from "./NotificationLogic.js";
 import { tokenExists, getStoredToken, storeWaveToken } from "../database/DatabaseLogic.js";
-
-const GROUPS_TABLE = "signal_notificationgroup";
 
 export async function runNotificationJob(force = false) {
   const { year, month } = getCurrentTokenPeriod();
@@ -40,24 +37,6 @@ export async function runNotificationJob(force = false) {
   // Standard message
   const standardMessage = process.env.STANDARD_NOTIFICATION_MESSAGE || "Neuer WaveToken wurde generiert. Verwende ihn zum Login.";
   const message = `${standardMessage}\n\nWaveToken: ${token}`;
-
-  // Fetch all groups
-  let groups = [];
-  try {
-    groups = await listGroups();
-  } catch (err) {
-    const rows = await db.execute(`SELECT group_id FROM ${GROUPS_TABLE}`);
-    groups = rows.map(r => r.group_id);
-  }
-
-  for (const g of groups) {
-    try {
-      const res = await sendMessageToGroup(g, message);
-      if (!res.ok) console.warn(`NotificationJob: failed to send to ${g}`, res);
-    } catch (err) {
-      console.error("Error sending to group", g, err);
-    }
-  }
 
   // Fetch all email recipients
   let emails = [];

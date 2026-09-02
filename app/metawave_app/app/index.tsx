@@ -161,9 +161,6 @@ export default function Index() {
         <Text style={styles.helperText}>Kein WaveToken?</Text>
 
         <View style={[styles.helperRow, isDesktop && styles.helperRowDesktop]}>
-          <TouchableOpacity style={styles.helperButton} onPress={() => router.push("/invite")}>
-            <Text style={styles.helperButtonText}>Signal Invite</Text>
-          </TouchableOpacity>
           <TouchableOpacity style={styles.helperButton} onPress={() => router.push("/email")}>
             <Text style={styles.helperButtonText}>E-Mail Notifier</Text>
           </TouchableOpacity>
