@@ -82,6 +82,19 @@ router.get("/meta/queue", (req, res) => {
 });
 
 // Control Endpoints
+router.post("/control/playback", (req, res) => {
+  const { paused } = req.body;
+  if (typeof paused !== "boolean") return res.status(400).json({ status: 400, message: "Invalid paused value" });
+  if (paused) radio.pause();
+  else radio.resume();
+  return res.json({ status: 200, paused: radio.isPaused, metadata: radio.getMeta() });
+});
+
+router.post("/control/playback/toggle", (req, res) => {
+  radio.togglePlayback();
+  return res.json({ status: 200, paused: radio.isPaused, metadata: radio.getMeta() });
+});
+
 router.get("/control/skip", (req, res) => { radio.skip(); res.json({ status: 200, message: "Song has been skipped" }); });
 router.get("/control/previous", (req, res) => { radio.previous(); res.json({ status: 200, message: "Previous song will be played" }); });
 router.get("/control/shuffle", (req, res) => { radio.shuffleRemaining(); res.json({ status: 200, message: "Queue shuffled" }); });
@@ -143,6 +156,19 @@ router.post("/settings/artist-distance", (req, res) => {
     message: `Minimum artist distance set to ${radio.minArtistDistance} songs`, 
     minArtistDistance: radio.minArtistDistance 
   });
+});
+
+router.post("/settings/work-schedule", async (req, res) => {
+  try {
+    await radio.setWorkSchedule(req.body);
+    return res.json({ status: 200, ...radio.getSettings() });
+  } catch (err) {
+    if (err.message === "INVALID_WORK_SCHEDULE") {
+      return res.status(400).json({ status: 400, message: "Arbeitszeit muss einen gültigen Start und ein gültiges Ende im Format HH:MM haben." });
+    }
+    console.error("Failed to save work schedule:", err);
+    return res.status(500).json({ status: 500, message: "Arbeitszeit konnte nicht gespeichert werden." });
+  }
 });
 
 export default router;

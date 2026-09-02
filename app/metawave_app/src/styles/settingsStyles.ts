@@ -159,6 +159,49 @@ export const settingsStyles = StyleSheet.create<any>({
     paddingVertical: 16,
     marginBottom: 12,
   },
+  scheduleHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  timeInputs: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 16,
+  },
+  timeInputGroup: {
+    flex: 1,
+  },
+  timeLabel: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    marginBottom: 6,
+  },
+  timeInput: {
+    color: colors.textPrimary,
+    backgroundColor: colors.backgroundDark,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 6,
+    fontSize: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  scheduleSaveButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 6,
+    marginTop: 16,
+    paddingVertical: 11,
+  },
+  scheduleSaveButtonDisabled: {
+    opacity: 0.6,
+  },
+  scheduleSaveButtonText: {
+    color: colors.textPrimary,
+    fontSize: 14,
+    fontWeight: "600",
+  },
   sliderContainer: {
     marginTop: 8,
   },

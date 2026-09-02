@@ -59,6 +59,10 @@ components:
           type: integer
           description: Sekunden seit Start des Songs
           example: 45
+        isPaused:
+          type: boolean
+          description: Gibt an, ob die globale Wiedergabe pausiert ist
+          example: false
 
     QueueItem:
       type: object
@@ -188,6 +192,22 @@ components:
           type: integer
           description: Aktuelle Lautstärke in Prozent (0-200)
           example: 100
+
+    WorkSchedule:
+      type: object
+      required: [enabled, startTime, endTime]
+      properties:
+        enabled:
+          type: boolean
+          example: true
+        startTime:
+          type: string
+          pattern: '^([01]\\d|2[0-3]):[0-5]\\d$'
+          example: "09:00"
+        endTime:
+          type: string
+          pattern: '^([01]\\d|2[0-3]):[0-5]\\d$'
+          example: "17:00"
 
 paths:
   # ======================
@@ -408,6 +428,45 @@ paths:
         "401":
           description: Unauthorized
 
+  /stream/control/playback:
+    post:
+      tags:
+        - Radio
+      summary: Globale Wiedergabe pausieren oder fortsetzen
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [paused]
+              properties:
+                paused:
+                  type: boolean
+                  example: true
+      responses:
+        "200":
+          description: Wiedergabestatus geändert
+        "400":
+          description: Ungültiger Wiedergabestatus
+        "401":
+          description: Unauthorized
+
+  /stream/control/playback/toggle:
+    post:
+      tags:
+        - Radio
+      summary: Globale Wiedergabe umschalten
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Wiedergabestatus geändert
+        "401":
+          description: Unauthorized
+
   /stream/control/skip:
     get:
       tags:
@@ -581,6 +640,8 @@ paths:
                     type: integer
                     example: 5
                     description: Minimale Anzahl von Songs zwischen demselben Künstler
+                  workSchedule:
+                    $ref: "#/components/schemas/WorkSchedule"
         "401":
           description: Unauthorized
 
@@ -719,6 +780,28 @@ paths:
                     example: 5
         "400":
           description: Ungültige Anfrage (distance muss eine nicht-negative Zahl sein)
+        "401":
+          description: Unauthorized
+
+  /stream/settings/work-schedule:
+    post:
+      tags:
+        - Radio
+      summary: Tägliche Arbeitszeit für das Radio setzen
+      description: Innerhalb des Zeitfensters wird das Radio automatisch fortgesetzt, außerhalb pausiert. Zeitfenster über Mitternacht werden unterstützt.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkSchedule"
+      responses:
+        "200":
+          description: Arbeitszeit gespeichert
+        "400":
+          description: Ungültiges Zeitformat oder identische Start- und Endzeit
         "401":
           description: Unauthorized
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Switch, Text, TouchableOpacity, View, ScrollView, Platform, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Alert, Switch, Text, TextInput, TouchableOpacity, View, ScrollView, Platform, useWindowDimensions } from "react-native";
 import Slider from "@react-native-community/slider";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -21,6 +21,9 @@ export default function SettingsScreen() {
   const [monotoneEnabled, setMonotoneEnabled] = useState(false);
   const [monotoneReduceLoud, setMonotoneReduceLoud] = useState(false);
   const [minArtistDistance, setMinArtistDistance] = useState(5);
+  const [workScheduleEnabled, setWorkScheduleEnabled] = useState(false);
+  const [workStartTime, setWorkStartTime] = useState("09:00");
+  const [workEndTime, setWorkEndTime] = useState("17:00");
   const tokenRef = React.useRef<string | null>(null);
 
   useEffect(() => {
@@ -65,6 +68,9 @@ export default function SettingsScreen() {
       if (typeof json?.minArtistDistance === "number") {
         setMinArtistDistance(json.minArtistDistance);
       }
+      if (typeof json?.workSchedule?.enabled === "boolean") setWorkScheduleEnabled(json.workSchedule.enabled);
+      if (typeof json?.workSchedule?.startTime === "string") setWorkStartTime(json.workSchedule.startTime);
+      if (typeof json?.workSchedule?.endTime === "string") setWorkEndTime(json.workSchedule.endTime);
     } catch (err) {
       // Ignore loading errors
     }
@@ -173,6 +179,29 @@ export default function SettingsScreen() {
     saveArtistDistance(rounded);
   };
 
+  const saveWorkSchedule = async (enabled = workScheduleEnabled) => {
+    if (!tokenRef.current) return;
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(workStartTime) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(workEndTime) || workStartTime === workEndTime) {
+      Alert.alert("Ungültige Arbeitszeit", "Bitte Start und Ende im Format HH:MM eingeben. Die Zeiten müssen verschieden sein.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/stream/settings/work-schedule`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled, startTime: workStartTime, endTime: workEndTime }),
+      });
+      if (!res.ok) throw new Error("Work schedule save failed");
+      setWorkScheduleEnabled(enabled);
+    } catch (err) {
+      Alert.alert("Fehler", "Arbeitszeit konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.centered}>
@@ -249,6 +278,36 @@ export default function SettingsScreen() {
                 thumbColor={monotoneReduceLoud ? "#ffffff" : "#dddddd"}
                 ios_backgroundColor="#3a3a3a"
               />
+            </View>
+
+            <View style={styles.settingCard}>
+              <View style={styles.scheduleHeader}>
+                <View style={styles.settingInfo}>
+                  <Text style={styles.settingLabel}>Arbeitszeiten</Text>
+                  <Text style={styles.settingDescription}>Radio täglich innerhalb dieses Zeitfensters automatisch einschalten</Text>
+                </View>
+                <Switch
+                  value={workScheduleEnabled}
+                  onValueChange={saveWorkSchedule}
+                  disabled={saving}
+                  trackColor={{ false: "#3a3a3a", true: "#4CAF50" }}
+                  thumbColor={workScheduleEnabled ? "#ffffff" : "#dddddd"}
+                  ios_backgroundColor="#3a3a3a"
+                />
+              </View>
+              <View style={styles.timeInputs}>
+                <View style={styles.timeInputGroup}>
+                  <Text style={styles.timeLabel}>Start</Text>
+                  <TextInput value={workStartTime} onChangeText={setWorkStartTime} style={styles.timeInput} placeholder="09:00" placeholderTextColor="#737373" keyboardType="numbers-and-punctuation" maxLength={5} editable={!saving} />
+                </View>
+                <View style={styles.timeInputGroup}>
+                  <Text style={styles.timeLabel}>Ende</Text>
+                  <TextInput value={workEndTime} onChangeText={setWorkEndTime} style={styles.timeInput} placeholder="17:00" placeholderTextColor="#737373" keyboardType="numbers-and-punctuation" maxLength={5} editable={!saving} />
+                </View>
+              </View>
+              <TouchableOpacity style={[styles.scheduleSaveButton, saving && styles.scheduleSaveButtonDisabled]} onPress={() => saveWorkSchedule()} disabled={saving}>
+                <Text style={styles.scheduleSaveButtonText}>Arbeitszeit speichern</Text>
+              </TouchableOpacity>
             </View>
           </View>
 

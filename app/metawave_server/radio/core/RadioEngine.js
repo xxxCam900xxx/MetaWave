@@ -14,6 +14,7 @@ import fs from "fs";
 import path from "path";
 import EventEmitter from "events";
 import WebSocket from "ws";
+import { getRadioSchedule, storeRadioSchedule } from "../database/DatabaseLogic.js";
 
 const SONGS_DIR = path.resolve("/songs");
 const METADATA_FILE = path.join(SONGS_DIR, "metadata.json");
@@ -28,6 +29,10 @@ export class RadioEngine extends EventEmitter {
     this.monotoneEnabled = false;
     this.monotoneReduceLoud = false;
     this.minArtistDistance = 5;
+    this.isPaused = false;
+    this._pausedElapsed = 0;
+    this.workSchedule = { enabled: false, startTime: "09:00", endTime: "17:00" };
+    this._lastScheduleShouldPlay = null;
     this.lastQueueHash = null;
     this.cachedQueueState = null;
 
@@ -39,8 +44,50 @@ export class RadioEngine extends EventEmitter {
     // so that covers, durations and LUFS values become available without restart.
     this._metadataMtime = null;
     this._metadataReloadInterval = setInterval(() => this._checkMetadataReload(), 30_000);
+    this._scheduleInterval = setInterval(() => this._applyWorkSchedule(), 30_000);
 
     this.loadQueue();
+    this._loadWorkSchedule();
+  }
+
+  async _loadWorkSchedule() {
+    try {
+      this.workSchedule = await getRadioSchedule();
+      this._applyWorkSchedule(true);
+    } catch (err) {
+      console.error("[RadioEngine] Arbeitszeiten konnten nicht geladen werden:", err);
+    }
+  }
+
+  _isValidTime(value) {
+    return typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+  }
+
+  _shouldPlayForWorkSchedule(now = new Date()) {
+    const { startTime, endTime } = this.workSchedule;
+    const currentTime = now.getHours() * 60 + now.getMinutes();
+    const [startHour, startMinute] = startTime.split(":").map(Number);
+    const [endHour, endMinute] = endTime.split(":").map(Number);
+    const start = startHour * 60 + startMinute;
+    const end = endHour * 60 + endMinute;
+
+    return start < end
+      ? currentTime >= start && currentTime < end
+      : currentTime >= start || currentTime < end;
+  }
+
+  _applyWorkSchedule(applyImmediately = false) {
+    if (!this.workSchedule.enabled) {
+      this._lastScheduleShouldPlay = null;
+      return;
+    }
+
+    const shouldPlay = this._shouldPlayForWorkSchedule();
+    if (applyImmediately || shouldPlay !== this._lastScheduleShouldPlay) {
+      this._lastScheduleShouldPlay = shouldPlay;
+      if (shouldPlay) this.resume("Arbeitszeit beginnt");
+      else this.pause("Arbeitszeit endet");
+    }
   }
 
   // ─── Hot-reload metadata ──────────────────────────────────────────────────
@@ -189,6 +236,7 @@ export class RadioEngine extends EventEmitter {
     index = ((index % this.queue.length) + this.queue.length) % this.queue.length;
     this.currentIndex = index;
     this._trackStartedAt = Date.now();
+    this._pausedElapsed = 0;
 
     // Invalidate queue-state cache
     this.lastQueueHash = null;
@@ -209,14 +257,23 @@ export class RadioEngine extends EventEmitter {
     this.broadcastQueueUpdate();
 
     // Auto-advance after duration (songs with duration=0 rely on client SONG_ENDED message)
-    const durationMs = (song.duration || 0) * 1000;
-    if (durationMs > 0) {
-      this._trackTimer = setTimeout(() => this._autoAdvance(), durationMs);
-    }
+    this._scheduleTrackAdvance(song.duration || 0);
+  }
+
+  _scheduleTrackAdvance(durationSeconds) {
+    if (this.isPaused || durationSeconds <= 0) return;
+    const remainingMs = Math.max(0, durationSeconds * 1000 - this._getElapsedMilliseconds());
+    this._trackTimer = setTimeout(() => this._autoAdvance(), remainingMs);
+  }
+
+  _getElapsedMilliseconds() {
+    return this.isPaused
+      ? this._pausedElapsed * 1000
+      : Date.now() - this._trackStartedAt;
   }
 
   _autoAdvance() {
-    if (!this.queue.length) return;
+    if (!this.queue.length || this.isPaused) return;
     const next = this.currentIndex + 1;
     if (next >= this.queue.length) {
       console.log("[RadioEngine] Ende der Queue – shuffle und von vorn");
@@ -231,7 +288,7 @@ export class RadioEngine extends EventEmitter {
    * Used as fallback for songs without a known duration.
    */
   clientReportedSongEnded() {
-    if (!this._trackTimer) {
+    if (!this.isPaused && !this._trackTimer) {
       this._autoAdvance();
     }
   }
@@ -269,7 +326,7 @@ export class RadioEngine extends EventEmitter {
 
   getMeta() {
     const song = this.queue[this.currentIndex];
-    const elapsed   = Math.floor((Date.now() - this._trackStartedAt) / 1000);
+    const elapsed   = Math.floor(this._getElapsedMilliseconds() / 1000);
     const duration  = song?.duration || 0;
     const lufsGainDb = song ? this._calcLufsGain(song) : 0;
     return {
@@ -284,6 +341,7 @@ export class RadioEngine extends EventEmitter {
       lufs:            song?.lufs    || null,
       lufsGainDb,
       monotoneEnabled: this.monotoneEnabled,
+      isPaused:        this.isPaused,
     };
   }
 
@@ -318,10 +376,50 @@ export class RadioEngine extends EventEmitter {
       monotoneEnabled:    this.monotoneEnabled,
       monotoneReduceLoud: this.monotoneReduceLoud,
       minArtistDistance:  this.minArtistDistance,
+      isPaused:          this.isPaused,
+      workSchedule:      this.workSchedule,
     };
   }
 
   // ─── Playback controls ─────────────────────────────────────────────────────
+
+  pause(reason = "Manuell pausiert") {
+    if (this.isPaused) return;
+    this._pausedElapsed = Math.floor(this._getElapsedMilliseconds() / 1000);
+    if (this._trackTimer) clearTimeout(this._trackTimer);
+    this._trackTimer = null;
+    this.isPaused = true;
+    console.log(`[RadioEngine] Pausiert bei ${this._pausedElapsed}s: ${reason}`);
+    this._broadcastPlaybackState();
+    this._broadcastTrackChanged();
+  }
+
+  resume(reason = "Manuell fortgesetzt") {
+    if (!this.isPaused) return;
+    const song = this.queue[this.currentIndex];
+    this._trackStartedAt = Date.now() - this._pausedElapsed * 1000;
+    this.isPaused = false;
+    this._scheduleTrackAdvance(song?.duration || 0);
+    console.log(`[RadioEngine] Fortgesetzt bei ${this._pausedElapsed}s: ${reason}`);
+    this._broadcastPlaybackState();
+    this._broadcastTrackChanged();
+  }
+
+  togglePlayback() {
+    if (this.isPaused) this.resume();
+    else this.pause();
+  }
+
+  async setWorkSchedule({ enabled, startTime, endTime }) {
+    if (typeof enabled !== "boolean" || !this._isValidTime(startTime) || !this._isValidTime(endTime) || startTime === endTime) {
+      throw new Error("INVALID_WORK_SCHEDULE");
+    }
+
+    this.workSchedule = { enabled, startTime, endTime };
+    await storeRadioSchedule(this.workSchedule);
+    this._applyWorkSchedule(true);
+    this.broadcastSettingsUpdate();
+  }
 
   skip() {
     console.log("[RadioEngine] Skip requested");
@@ -473,6 +571,13 @@ export class RadioEngine extends EventEmitter {
       if (ws.readyState === WebSocket.OPEN) ws.send(payload);
     }
     this.emit("meta", meta);
+  }
+
+  _broadcastPlaybackState() {
+    const payload = JSON.stringify({ type: "playbackStateChanged", meta: this.getMeta() });
+    for (const ws of this.wsClients) {
+      if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+    }
   }
 
   broadcastQueueUpdate() {

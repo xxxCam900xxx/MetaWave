@@ -76,6 +76,35 @@ export async function storeWaveToken(token, year, month) {
   return storedToken;
 }
 
+export async function getRadioSchedule() {
+  await execute(`
+    CREATE TABLE IF NOT EXISTS radio_schedule (
+      id TINYINT PRIMARY KEY,
+      enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      start_time CHAR(5) NOT NULL DEFAULT '09:00',
+      end_time CHAR(5) NOT NULL DEFAULT '17:00',
+      CHECK (id = 1)
+    )
+  `);
+  await execute(`INSERT IGNORE INTO radio_schedule (id) VALUES (1)`);
+
+  const rows = await execute(`SELECT enabled, start_time, end_time FROM radio_schedule WHERE id = 1`);
+  const schedule = rows[0];
+  return {
+    enabled: Boolean(schedule?.enabled),
+    startTime: schedule?.start_time || "09:00",
+    endTime: schedule?.end_time || "17:00",
+  };
+}
+
+export async function storeRadioSchedule({ enabled, startTime, endTime }) {
+  await execute(`
+    INSERT INTO radio_schedule (id, enabled, start_time, end_time)
+    VALUES (1, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), start_time = VALUES(start_time), end_time = VALUES(end_time)
+  `, [enabled, startTime, endTime]);
+}
+
 export default {
   execute,
   transaction

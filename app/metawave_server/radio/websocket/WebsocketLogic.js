@@ -15,11 +15,12 @@ export function setupWebSocket(server) {
 
     radio.addWSClient(ws);
 
-    // Beim Verbindungsaufbau: aktuellen Track + Queue + Volume senden
+    // Beim Verbindungsaufbau: aktuellen Track + Queue + Volume + Wiedergabestatus senden
     try {
       ws.send(JSON.stringify({ type: "trackChanged", meta: radio.getMeta() }));
       ws.send(JSON.stringify({ type: "queueUpdated", queue: radio.getQueueState() }));
       ws.send(JSON.stringify({ type: "volumeChanged", volume: radio.volumePercent }));
+      ws.send(JSON.stringify({ type: "playbackStateChanged", meta: radio.getMeta() }));
     } catch (err) {
       console.error("Failed to send initial WS state:", err);
     }

@@ -22,6 +22,7 @@ interface StreamMeta {
   elapsed?: number;
   lufsGainDb?: number;
   monotoneEnabled?: boolean;
+  isPaused?: boolean;
 }
 
 interface QueueItem {
@@ -351,6 +352,14 @@ export default function PlayerScreen() {
         // Wenn es derselbe Track ist, nur Volumen updaten
         if (soundRef.current && lastLoadedTrackKeyRef.current === trackKey) {
           await applyCurrentVolume(soundRef.current, currentMetaToLoad);
+          if (currentMetaToLoad.isPaused) {
+            await soundRef.current.pauseAsync().catch(() => undefined);
+            setIsPlayingState(false);
+          } else {
+            await soundRef.current.setPositionAsync((currentMetaToLoad.elapsed || 0) * 1000).catch(() => undefined);
+            await soundRef.current.playAsync().catch(() => undefined);
+            setIsPlayingState(true);
+          }
         } else {
           // Alten Sound sicher beenden, bevor der neue geladen wird
           if (soundRef.current) {
@@ -362,7 +371,7 @@ export default function PlayerScreen() {
           const { sound } = await Audio.Sound.createAsync(
             { uri: fileUrl },
             {
-              shouldPlay: true, // Autoplay
+              shouldPlay: !currentMetaToLoad.isPaused,
               positionMillis: (currentMetaToLoad.elapsed || 0) * 1000,
               progressUpdateIntervalMillis: 500,
               volume: getEffectiveVolume(currentMetaToLoad),
@@ -375,7 +384,7 @@ export default function PlayerScreen() {
           lastLoadedTrackKeyRef.current = trackKey;
           sound.setOnPlaybackStatusUpdate(handleStatusUpdate);
           
-          setIsPlayingState(true);
+          setIsPlayingState(!currentMetaToLoad.isPaused);
           setError(null);
           
           // Nächsten Song im Hintergrund preloaden (silent errors)
@@ -404,13 +413,13 @@ export default function PlayerScreen() {
     const freshMeta: StreamMeta = {
       filename: dm.filename, title: dm.title, author: dm.author, duration: newDuration,
       cover: dm.cover, index: dm.index, total: dm.total, elapsed: newElapsed,
-      lufsGainDb: dm.lufsGainDb ?? 0, monotoneEnabled: dm.monotoneEnabled ?? false,
+      lufsGainDb: dm.lufsGainDb ?? 0, monotoneEnabled: dm.monotoneEnabled ?? false, isPaused: Boolean(dm.isPaused),
     };
     
     const shouldLoadAudio = Boolean(soundRef.current || hasStartedPlaybackRef.current);
     setMetaAndRef(freshMeta);
     updateServerTime(newElapsed, newDuration);
-    setIsPlayingState(true);
+    setIsPlayingState(!freshMeta.isPaused);
     lastMetaUpdateRef.current = Date.now();
 
     if (fallbackTimeoutRef.current) {
@@ -429,6 +438,28 @@ export default function PlayerScreen() {
 
     return metaVersionRef.current;
   }, [applyCurrentVolume, applyQueueFromServer, getEffectiveVolume, queue, updateServerTime]);
+
+  const handlePlaybackState = async (incomingMeta: StreamMeta) => {
+    const updatedMeta = { ...(metaRef.current || {}), ...incomingMeta };
+    setMetaAndRef(updatedMeta);
+    const elapsed = Number(updatedMeta.elapsed) || 0;
+    updateServerTime(elapsed, Number(updatedMeta.duration) || 0);
+    setLocalElapsedTime(elapsed);
+
+    if (!soundRef.current) {
+      if (hasStartedPlaybackRef.current && !updatedMeta.isPaused) safeLoadTrack(updatedMeta);
+      return;
+    }
+
+    if (updatedMeta.isPaused) {
+      await soundRef.current.pauseAsync().catch(() => undefined);
+      setIsPlayingState(false);
+    } else {
+      await soundRef.current.setPositionAsync(elapsed * 1000).catch(() => undefined);
+      await soundRef.current.playAsync().catch(() => undefined);
+      setIsPlayingState(true);
+    }
+  };
 
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -451,6 +482,10 @@ export default function PlayerScreen() {
         syncIntervalRef.current = setInterval(syncCheck, 10000);
         
         localTimerRef.current = setInterval(() => {
+          if (metaRef.current?.isPaused) {
+            setLocalElapsedTime(serverElapsedRef.current);
+            return;
+          }
           const now = Date.now();
           const timeSinceUpdate = (now - serverTimestampRef.current) / 1000;
           const calculatedElapsed = serverElapsedRef.current + timeSinceUpdate;
@@ -500,6 +535,7 @@ export default function PlayerScreen() {
         try {
           const data = JSON.parse(event.data);
           if (data?.type === "trackChanged" && data.meta) handleTrackChanged(data.meta, Array.isArray(data.queue) ? data.queue : undefined);
+          else if (data?.type === "playbackStateChanged" && data.meta) handlePlaybackState(data.meta);
           else if (data?.type === "queueUpdated" && data.queue) applyQueueFromServer(Array.isArray(data.queue?.queue) ? data.queue.queue : data.queue);
           else if (data?.type === "volumeChanged" && typeof data.volume === "number") {
             setVolumeState(Number(data.volume));
@@ -597,20 +633,21 @@ export default function PlayerScreen() {
   };
 
   const togglePlayPause = async () => {
-    if (!soundRef.current) {
-      if (metaRef.current) {
-        hasStartedPlaybackRef.current = true;
-        safeLoadTrack(metaRef.current);
-      }
-      return;
-    }
-    const status = await soundRef.current.getStatusAsync();
-    if (!status.isLoaded) return;
-    if (status.isPlaying) await soundRef.current.pauseAsync();
-    else {
-      const elapsed = serverElapsedRef.current + (Date.now() - serverTimestampRef.current) / 1000;
-      try { await soundRef.current.setPositionAsync(Math.max(0, Math.floor((currentSongDurationRef.current > 0 ? Math.min(elapsed, currentSongDurationRef.current) : elapsed) * 1000))); } catch {}
-      await soundRef.current.playAsync();
+    if (!tokenRef.current) return;
+    setPlaybackLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/stream/control/playback`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ paused: !metaRef.current?.isPaused }),
+      });
+      if (!res.ok) throw new Error("Playback control failed");
+      const json = await res.json();
+      if (json?.metadata) await handlePlaybackState(json.metadata);
+    } catch (err) {
+      Alert.alert("Fehler", "Radio konnte nicht umgeschaltet werden.");
+    } finally {
+      setPlaybackLoading(false);
     }
   };
 
@@ -756,8 +793,8 @@ export default function PlayerScreen() {
               <FontAwesomeIcon icon={faBackwardStep} size={20} color="#FFFFFF" />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.playButton} onPress={togglePlayPause} disabled={playbackLoading}>
-              {playbackLoading ? ( <ActivityIndicator color="#fff" /> ) : ( <FontAwesomeIcon icon={isPlaying ? faPause : faPlay} size={24} color="#FFFFFF" /> )}
+            <TouchableOpacity style={styles.playButton} onPress={togglePlayPause} disabled={playbackLoading} accessibilityLabel={meta?.isPaused ? "Radio fortsetzen" : "Radio pausieren"}>
+              {playbackLoading ? ( <ActivityIndicator color="#fff" /> ) : ( <FontAwesomeIcon icon={meta?.isPaused ? faPlay : faPause} size={24} color="#FFFFFF" /> )}
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.secondaryButton} onPress={() => callControl("/stream/control/skip")}>
@@ -846,11 +883,11 @@ export default function PlayerScreen() {
               <TouchableOpacity style={[styles.secondaryButton, isDesktop && styles.secondaryButtonDesktop]} onPress={() => callControl("/stream/control/previous")}>
                 <FontAwesomeIcon icon={faBackwardStep} size={22} color="#FFFFFF" />
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.playButton, isDesktop && styles.playButtonDesktop]} onPress={togglePlayPause} disabled={playbackLoading}>
+              <TouchableOpacity style={[styles.playButton, isDesktop && styles.playButtonDesktop]} onPress={togglePlayPause} disabled={playbackLoading} accessibilityLabel={meta?.isPaused ? "Radio fortsetzen" : "Radio pausieren"}>
                 {playbackLoading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <FontAwesomeIcon icon={isPlaying ? faPause : faPlay} size={26} color="#FFFFFF" />
+                  <FontAwesomeIcon icon={meta?.isPaused ? faPlay : faPause} size={26} color="#FFFFFF" />
                 )}
               </TouchableOpacity>
               <TouchableOpacity style={[styles.secondaryButton, isDesktop && styles.secondaryButtonDesktop]} onPress={() => callControl("/stream/control/skip")}>
