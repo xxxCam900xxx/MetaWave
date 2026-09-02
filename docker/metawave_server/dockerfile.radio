@@ -9,13 +9,8 @@ RUN npm install
 
 COPY app/metawave_server/radio .
 
-RUN npm install -g ngrok
-
-# start.sh CRLF-sicher machen
-RUN sed -i 's/\r$//' /app/start.sh && chmod +x /app/start.sh
-
 VOLUME ["/songs"]
 
 EXPOSE 8000
 
-CMD ["bash", "start.sh"]
+CMD ["node", "server.js"]
