@@ -1,7 +1,7 @@
+import { getCurrentTokenPeriod, getMonthlyCode } from "../middleware/WaveTokenLogic.js";
 import db from "../database/DatabaseLogic.js";
 import { spawn } from "child_process";
 import nodemailer from "nodemailer";
-import { getMonthlyCode } from "../middleware/WaveTokenLogic.js";
 import { getStoredToken, storeWaveToken } from "../database/DatabaseLogic.js";
 
 // DB Table Signal Notification Groups
@@ -142,16 +142,14 @@ export async function sendMessageToGroup(groupId, message) {
 export async function sendWaveTokenToGroup(groupId) {
   if (!groupId) throw new Error("INVALID_GROUP_ID");
 
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const { year, month } = getCurrentTokenPeriod();
 
   let token = null;
   try {
     token = await getStoredToken(year, month);
     if (!token) {
-      token = getMonthlyCode();
-      await storeWaveToken(token);
+      token = getMonthlyCode({ year, month });
+      await storeWaveToken(token, year, month);
     }
   } catch (err) {
     console.error("sendWaveTokenToGroup: failed to obtain or store token", err);
@@ -223,16 +221,14 @@ export async function sendWaveTokenToEmail(email) {
   const trimmed = email.trim();
   if (!trimmed) throw new Error("INVALID_EMAIL");
 
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const { year, month } = getCurrentTokenPeriod();
 
   let token = null;
   try {
     token = await getStoredToken(year, month);
     if (!token) {
-      token = getMonthlyCode();
-      await storeWaveToken(token);
+      token = getMonthlyCode({ year, month });
+      await storeWaveToken(token, year, month);
     }
   } catch (err) {
     console.error("sendWaveTokenToEmail: failed to obtain or store token", err);

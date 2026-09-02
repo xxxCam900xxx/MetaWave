@@ -62,14 +62,18 @@ export async function getStoredToken(year, month) {
   return null;
 }
 
-export async function storeWaveToken(token) {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+export async function storeWaveToken(token, year, month) {
   await execute(
     `INSERT INTO wave_tokens (token, year, month) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE token = ?`,
     [token, year, month, token]
   );
+
+  const storedToken = await getStoredToken(year, month);
+  if (storedToken !== token) {
+    throw new Error(`Wave token could not be verified for ${year}-${month}`);
+  }
+
+  return storedToken;
 }
 
 export default {

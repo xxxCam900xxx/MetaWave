@@ -1,14 +1,12 @@
 import db from "../database/DatabaseLogic.js";
-import { getMonthlyCode } from "../middleware/WaveTokenLogic.js";
+import { getCurrentTokenPeriod, getMonthlyCode } from "../middleware/WaveTokenLogic.js";
 import { listGroups, sendMessageToGroup, listEmailRecipients, sendEmailNotification } from "./NotificationLogic.js";
 import { tokenExists, getStoredToken, storeWaveToken } from "../database/DatabaseLogic.js";
 
 const GROUPS_TABLE = "signal_notificationgroup";
 
 export async function runNotificationJob(force = false) {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const { year, month } = getCurrentTokenPeriod();
 
   try {
     if (!force && await tokenExists(year, month)) {
@@ -27,20 +25,16 @@ export async function runNotificationJob(force = false) {
       if (existing) {
         token = existing; // reuse existing token when forcing
       } else {
-        token = getMonthlyCode();
-        await storeWaveToken(token);
+        token = getMonthlyCode({ year, month });
+        await storeWaveToken(token, year, month);
       }
     } else {
-      token = getMonthlyCode();
-      try {
-        await storeWaveToken(token);
-      } catch (err) {
-        console.error("Failed to store wave token:", err);
-      }
+      token = getMonthlyCode({ year, month });
+      await storeWaveToken(token, year, month);
     }
   } catch (err) {
     console.error("NotificationJob: error while preparing/storing token:", err);
-    if (!token) token = getMonthlyCode();
+    throw err;
   }
 
   // Standard message
