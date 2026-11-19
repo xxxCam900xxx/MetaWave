@@ -67,6 +67,15 @@ class FeedSecurityTests(unittest.TestCase):
         entry["title"] = "heise+ stellt sein neues Angebot vor"
         self.assertEqual(_news_item(entry, "heise online News").title, entry["title"])
 
+    def test_only_safe_absolute_article_links_are_saved(self):
+        entry = {"title": "Titel", "link": "https://example.org/article?a=1"}
+        self.assertEqual(_news_item(entry, "Quelle").url, entry["link"])
+        for link in ("javascript:alert(1)", "/relative", "https://user:pass@example.org/",
+                     "https://example.org/\nheader", "http://[invalid"):
+            with self.subTest(link=link):
+                entry["link"] = link
+                self.assertIsNone(_news_item(entry, "Quelle").url)
+
 
 class JingleTests(unittest.TestCase):
     def test_jingles_surround_the_speech_and_duration_matches_the_file(self):
@@ -93,7 +102,7 @@ class ApiTests(unittest.TestCase):
         self.paths = patch.multiple(main, DATA=root, AUDIO=root / "audio", JOBS=root / "jobs",
                                     CONFIG=root / "config.json", LATEST=root / "latest.json")
         self.paths.start()
-        self.feed = patch("main.fetch_feed", return_value=[NewsItem("Titel", "Inhalt", "Quelle")])
+        self.feed = patch("main.fetch_feed", return_value=[NewsItem("Titel", "Inhalt", "Quelle", "https://example.org/artikel")])
         self.llm = patch("main.generate_script", return_value=f"Nachrichten. {OUTRO}")
         self.feed_mock = self.feed.start()
         self.llm.start()
@@ -133,6 +142,7 @@ class ApiTests(unittest.TestCase):
             time.sleep(0.02)
         self.assertEqual(job["state"], "ready", job)
         self.assertEqual(self.feed_mock.call_count, 3)
+        self.assertEqual(job["items"][0], {"title": "Titel", "summary": "Inhalt", "source": "Quelle", "url": "https://example.org/artikel"})
         self.assertTrue(self.client.get("/audio/latest").content.startswith(b"RIFF"))
         self.assertTrue(self.client.get(f"/jobs/{job_id}/audio").content.startswith(b"RIFF"))
         self.assertIsNone(self.client.post("/internal/due", json={"playing": True}).json()["episode"])
@@ -159,6 +169,43 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(ack.json()["state"], "played")
         self.assertEqual(main.read_json(path)["state"], "played")
 
+    def test_song_transition_renders_current_titles_around_the_prepared_bulletin(self):
+        config = self.client.get("/config").json()
+        config["enabled"] = True
+        self.client.post("/config", json=config)
+        target = datetime.now(UTC).replace(second=0, microsecond=0)
+        path = main.job_path(target, main.speaker.config)
+        filename = "speaker-" + "a" * 32 + ".wav"
+        self.render(None, "Nachrichten", main.AUDIO / filename)
+        main.write_json(path, {"state": "claimed", "filename": filename, "duration": 60})
+        spoken = []
+
+        def render(engine, text, output):
+            spoken.append(text)
+            self.render(engine, text, output)
+
+        payload = {"key": path.stem, "filename": filename, "previous": "Erster Song", "following": "Zweiter Song"}
+        with patch.object(main.TTSEngine, "render", new=render):
+            response = self.client.post("/internal/transition", json=payload).json()
+            for _ in range(100):
+                if response["state"] != "preparing":
+                    break
+                time.sleep(0.02)
+                response = self.client.post("/internal/transition", json=payload).json()
+        self.assertEqual(response["state"], "ready", response)
+        self.assertEqual(spoken, ["Das war Erster Song. Kommen wir zu den Nachrichten.",
+                                  "Jetzt kommt Zweiter Song. Danke fürs Einschalten!"])
+        with wave.open(str(main.AUDIO / response["filename"]), "rb") as audio:
+            self.assertEqual(audio.getnframes() / audio.getframerate(), 181)
+        self.assertEqual(response["duration"], 181)
+        config["enabled"] = False
+        self.client.post("/config", json=config)
+        self.assertEqual(self.client.post("/internal/transition", json=payload).json()["state"], "failed")
+
+    def test_transition_rejects_invalid_identifiers(self):
+        payload = {"key": "../config", "filename": "other.wav", "previous": "A", "following": "B"}
+        self.assertEqual(self.client.post("/internal/transition", json=payload).status_code, 400)
+
     def test_status_uses_next_broadcast_job_not_last_updated_job(self):
         now = datetime.now(UTC).replace(second=0, microsecond=0)
         target = now + timedelta(hours=2)
@@ -169,8 +216,8 @@ class ApiTests(unittest.TestCase):
         self.client.post("/config", json=config)
         first_path = main.job_path(target, main.speaker.config)
         later_path = main.job_path(later, main.speaker.config)
-        main.write_json(first_path, {"state": "failed", "target": target.isoformat()})
-        main.write_json(later_path, {"state": "ready", "target": later.isoformat()})
+        main.write_json(first_path, {"state": "failed", "target": target.isoformat(), "script": "nicht senden"})
+        main.write_json(later_path, {"state": "ready", "target": later.isoformat(), "script": "später"})
         os.utime(first_path, (now.timestamp() - 10, now.timestamp() - 10))
         os.utime(later_path, (now.timestamp(), now.timestamp()))
         with patch("main.datetime", wraps=datetime) as clock:
@@ -178,7 +225,55 @@ class ApiTests(unittest.TestCase):
             status = self.client.get("/status").json()
         self.assertEqual(status["next_broadcast"], target.isoformat())
         self.assertEqual(status["next_broadcast_state"], "failed")
+        self.assertIsNone(status["next_broadcast_script"])
         self.assertEqual(status["last_scheduled"]["state"], "ready")
+        items = [{"title": "Artikel", "summary": "Inhalt", "source": "Quelle", "url": "https://example.org/artikel"}]
+        main.write_json(first_path, {"state": "ready", "target": target.isoformat(), "script": "Nachrichten", "items": items})
+        with patch("main.datetime", wraps=datetime) as clock:
+            clock.now.return_value = now
+            status = self.client.get("/status").json()
+            self.assertEqual(status["next_broadcast_script"], "Nachrichten")
+            self.assertEqual(status["next_broadcast_items"], items)
+        main.write_json(first_path, {"state": "failed", "target": target.isoformat(), "script": "Nachrichten", "items": items})
+        with patch("main.datetime", wraps=datetime) as clock:
+            clock.now.return_value = now
+            self.assertIsNone(self.client.get("/status").json()["next_broadcast_items"])
+
+    def test_status_shows_the_claimed_broadcast_while_waiting_for_a_song_end(self):
+        now = datetime.now(UTC).replace(second=0, microsecond=0)
+        config = self.client.get("/config").json()
+        config.update(enabled=True, times=[now.astimezone(ZONE).strftime("%H:%M"),
+                                          (now + timedelta(hours=1)).astimezone(ZONE).strftime("%H:%M")])
+        self.client.post("/config", json=config)
+        path = main.job_path(now, main.speaker.config)
+        main.write_json(path, {"state": "claimed", "target": now.isoformat(), "script": "Aktuelle Nachrichten"})
+        with patch("main.datetime", wraps=datetime) as clock:
+            clock.now.return_value = now + timedelta(minutes=4)
+            status = self.client.get("/status").json()
+        self.assertEqual(status["next_broadcast"], now.isoformat())
+        self.assertEqual(status["next_broadcast_state"], "claimed")
+        self.assertEqual(status["next_broadcast_script"], "Aktuelle Nachrichten")
+
+    def test_status_returns_latest_played_broadcast_not_preview_or_later_failed_job(self):
+        now = datetime.now(UTC).replace(second=0, microsecond=0)
+        older = now - timedelta(hours=2)
+        newer = now - timedelta(hours=1)
+        for target, state, script in ((older, "played", "Älter"), (newer, "played", "Zuletzt"),
+                                      (now, "failed", "Nicht gesendet")):
+            path = main.job_path(target, main.speaker.config)
+            main.write_json(path, {"state": state, "target": target.isoformat(), "script": script})
+        main.write_json(main.JOBS / ("preview-" + "a" * 32 + ".json"),
+                        {"state": "ready", "target": now.isoformat(), "script": "Vorschau"})
+        with patch("main.datetime", wraps=datetime) as clock:
+            clock.now.return_value = now
+            result = self.client.get("/status").json()
+        self.assertEqual(result["last_broadcast"], {"target": newer.isoformat(), "script": "Zuletzt"})
+        items = [{"title": "Artikel", "summary": "Inhalt", "source": "Quelle", "url": "https://example.org/artikel"}]
+        path = main.job_path(newer, main.speaker.config)
+        main.write_json(path, {"state": "played", "target": newer.isoformat(), "script": "Zuletzt", "items": items})
+        with patch("main.datetime", wraps=datetime) as clock:
+            clock.now.return_value = now
+            self.assertEqual(self.client.get("/status").json()["last_broadcast"]["items"], items)
 
     def test_paused_radio_skips_ready_episode(self):
         now = datetime.now(UTC).replace(second=0, microsecond=0)
@@ -245,13 +340,15 @@ class ApiTests(unittest.TestCase):
         self.assertFalse((main.AUDIO / "speaker-test.wav").exists())
 
     def test_all_available_feed_items_are_interleaved_for_longer_bulletins(self):
-        feeds = [[NewsItem(f"{feed}-{index}", "", "Quelle") for index in range(count)]
+        feeds = [[NewsItem(f"{feed}-{index}", "Zusammenfassung", "Quelle", f"https://example.org/{feed}-{index}") for index in range(count)]
                  for feed, count in enumerate((3, 1, 2))]
         self.feed_mock.side_effect = feeds
         with patch("main.generate_script", return_value="Text") as generate:
-            main.speaker.prepare_sync(main.speaker.config, datetime.now(UTC), "speaker-test.wav")
+            result = main.speaker.prepare_sync(main.speaker.config, datetime.now(UTC), "speaker-test.wav")
         self.assertEqual([item.title for item in generate.call_args.args[0]],
                          ["0-0", "1-0", "2-0", "0-1", "2-1", "0-2"])
+        self.assertEqual(result["items"][0], {"title": "0-0", "summary": "Zusammenfassung",
+                                             "source": "Quelle", "url": "https://example.org/0-0"})
 
     def test_next_day_cleanup_keeps_future_and_recent_broadcasts(self):
         now = datetime(2026, 1, 2, 0, 1, tzinfo=ZONE)
@@ -290,6 +387,33 @@ class ApiTests(unittest.TestCase):
         main.speaker.prune(now + timedelta(minutes=3))
         self.assertFalse(records[2][0].exists())
         self.assertFalse(records[2][1].exists())
+
+    def test_cleanup_protects_waiting_and_playing_transitions_across_midnight(self):
+        now = datetime(2026, 1, 2, 0, 5, tzinfo=ZONE)
+        target = now - timedelta(minutes=10)
+        original = "speaker-" + "a" * 32 + ".wav"
+        combined = "speaker-" + "b" * 32 + ".wav"
+        path = main.job_path(target, main.speaker.config)
+        main.write_json(path, {"state": "claimed", "target": target.isoformat(), "filename": original})
+        for filename in (original, combined):
+            audio = main.AUDIO / filename
+            audio.write_bytes(b"audio")
+            os.utime(audio, (target.timestamp(), target.timestamp()))
+        os.utime(path, (target.timestamp(), target.timestamp()))
+        main.speaker.transition = {"state": "ready", "signature": (path.stem, original, "A", "B"),
+                                   "filename": combined, "duration": 240}
+        main.speaker.prune(now)
+        self.assertTrue(path.exists())
+        self.assertTrue((main.AUDIO / combined).exists())
+        record = main.read_json(path)
+        record["state"] = "played"
+        main.write_json(path, record)
+        os.utime(path, (now.timestamp(), now.timestamp()))
+        main.speaker.prune(now + timedelta(seconds=200))
+        self.assertTrue((main.AUDIO / combined).exists())
+        main.speaker.prune(now + timedelta(seconds=271))
+        self.assertFalse(path.exists())
+        self.assertFalse((main.AUDIO / combined).exists())
 
     def test_slow_preparation_is_not_aired_late(self):
         target = datetime.now(UTC).replace(second=0, microsecond=0) + timedelta(hours=1)

@@ -6,9 +6,12 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid
+import wave
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -99,8 +102,11 @@ class Speaker:
             self.config = Config()
             write_json(CONFIG, self.config.model_dump())
         self.tts = TTSEngine()
+        self.tts_lock = threading.Lock()
         self.current: dict | None = None
         self.task: asyncio.Task | None = None
+        self.transition: dict | None = None
+        self.transition_task: asyncio.Task | None = None
         self.scheduler: asyncio.Task | None = None
         for path in JOBS.glob("*.json"):
             record = read_json(path)
@@ -114,6 +120,22 @@ class Speaker:
         now = now or datetime.now(UTC)
         today = now.astimezone(ZONE).date()
         protected: set[str] = set()
+        active_transition_key = None
+        if self.transition and self.transition.get("state") == "ready":
+            try:
+                key = self.transition["signature"][0]
+                path = JOBS / f"{key}.json"
+                if path.exists():
+                    record = read_json(path)
+                    target = datetime.fromisoformat(record["target"])
+                    waiting = record.get("state") == "claimed" and 0 <= (now - target).total_seconds() < 1800
+                    playing = record.get("state") == "played" and path.stat().st_mtime > now.timestamp() - max(180, self.transition["duration"] + 30)
+                    if waiting or playing:
+                        protected.add(self.transition["filename"])
+                        active_transition_key = key
+            except (OSError, ValueError, KeyError, TypeError):
+                log.exception("Could not check active speaker transition for cleanup")
+                protected.add(self.transition["filename"])
         for path in JOBS.glob("*.json"):
             filename = ""
             try:
@@ -125,7 +147,9 @@ class Speaker:
                 if target.tzinfo is None or target.utcoffset() is None:
                     raise ValueError("Job target has no timezone")
                 recent = (0 <= (now - target).total_seconds() < 180
-                          or path.stat().st_mtime > now.timestamp() - 180)
+                          or path.stat().st_mtime > now.timestamp() - 180
+                          or path.stem == active_transition_key
+                          or (record.get("state") == "claimed" and 0 <= (now - target).total_seconds() < 1800))
                 if audio and audio.exists():
                     recent = recent or audio.stat().st_mtime > now.timestamp() - 180
                 if target.astimezone(ZONE).date() < today and record.get("state") != "preparing" and not recent:
@@ -159,7 +183,7 @@ class Speaker:
         active_id = self.current.get("id") if self.current and self.task and not self.task.done() else None
         for path in AUDIO.glob("speaker-*"):
             try:
-                match = re.fullmatch(r"speaker-([a-f0-9]{32})\.wav(?:\.tmp(?:\.jingle)?)?", path.name)
+                match = re.fullmatch(r"speaker-([a-f0-9]{32})\.wav(?:(?:\.intro|\.outro)?\.tmp(?:\.jingle)?)?", path.name)
                 if not match or path.name in protected or match.group(1) == active_id:
                     continue
                 modified = datetime.fromtimestamp(path.stat().st_mtime, UTC)
@@ -187,14 +211,76 @@ class Speaker:
         )
         temporary = AUDIO / (filename + ".tmp")
         try:
-            self.tts.render(script, temporary)
+            with self.tts_lock:
+                self.tts.render(script, temporary)
             duration = add_jingles(temporary)
             if not 60 <= duration <= 180:
                 raise ValueError(f"Sprecherbeitrag dauert {duration:.1f} Sekunden; benötigt werden 60 bis 180 Sekunden")
             os.replace(temporary, AUDIO / filename)
         finally:
             temporary.unlink(missing_ok=True)
-        return {"filename": filename, "duration": duration, "script": script}
+        return {"filename": filename, "duration": duration, "script": script,
+                "items": [asdict(item) for item in items]}
+
+    def render_transition(self, source: str, previous: str, following: str) -> dict:
+        filename = f"speaker-{uuid.uuid4().hex}.wav"
+        temporary = AUDIO / (filename + ".tmp")
+        intro = AUDIO / (filename + ".intro.tmp")
+        outro = AUDIO / (filename + ".outro.tmp")
+        try:
+            with self.tts_lock:
+                self.tts.render(f"Das war {previous}. Kommen wir zu den Nachrichten.", intro)
+                self.tts.render(f"Jetzt kommt {following}. Danke fürs Einschalten!", outro)
+            parts = []
+            params = None
+            for path in (intro, AUDIO / source, outro):
+                with wave.open(str(path), "rb") as audio:
+                    current = (audio.getnchannels(), audio.getsampwidth(), audio.getframerate(), audio.getcomptype())
+                    if params is not None and current != params:
+                        raise ValueError("Sprecheraufnahmen haben unterschiedliche Audioformate")
+                    params = current
+                    parts.append(audio.readframes(audio.getnframes()))
+            if params is None or params[3] != "NONE":
+                raise ValueError("Ungültiges Sprecher-Audioformat")
+            with wave.open(str(temporary), "wb") as audio:
+                audio.setnchannels(params[0])
+                audio.setsampwidth(params[1])
+                audio.setframerate(params[2])
+                audio.writeframes(b"\0" * (params[0] * params[1] * params[2]))
+                for part in parts:
+                    audio.writeframes(part)
+                duration = audio.getnframes() / params[2]
+            os.replace(temporary, AUDIO / filename)
+            return {"filename": filename, "duration": duration}
+        finally:
+            for path in (temporary, intro, outro):
+                path.unlink(missing_ok=True)
+
+    def request_transition(self, key: str, source: str, previous: str, following: str) -> dict:
+        if not self.config.enabled or not key.endswith(f"-{revision(self.config)}"):
+            return {"state": "failed", "error": "Speaker-Konfiguration wurde geändert"}
+        path = JOBS / f"{key}.json"
+        if not path.exists():
+            return {"state": "failed", "error": "Sendung nicht gefunden"}
+        record = read_json(path)
+        if record.get("filename") != source or record.get("state") not in ("ready", "claimed", "uncertain"):
+            return {"state": "failed", "error": "Sendung ist nicht für die Übergabe bereit"}
+        signature = (key, source, previous, following)
+        if self.transition and self.transition["signature"] == signature:
+            return {k: v for k, v in self.transition.items() if k != "signature"}
+        if (self.transition_task and not self.transition_task.done()) or (self.task and not self.task.done()):
+            return {"state": "busy"}
+        self.transition = {"signature": signature, "state": "preparing"}
+        self.transition_task = asyncio.create_task(self.run_transition(signature))
+        return {"state": "preparing"}
+
+    async def run_transition(self, signature: tuple[str, str, str, str]) -> None:
+        try:
+            result = await asyncio.to_thread(self.render_transition, signature[1], signature[2], signature[3])
+            self.transition.update(result, state="ready")
+        except Exception as exc:
+            log.exception("Speaker transition preparation failed")
+            self.transition.update(state="failed", error=str(exc))
 
     def start_job(self, target: datetime, scheduled: bool) -> dict:
         if self.task and not self.task.done():
@@ -252,7 +338,7 @@ class Speaker:
                                 record.update(state="missed", error="Nicht rechtzeitig ausgespielt")
                                 write_json(path, record)
                                 log.error("Speaker broadcast missed: %s", target)
-                            elif record.get("state") == "claimed" and late >= 10:
+                            elif record.get("state") == "claimed" and late >= 1800:
                                 record.update(state="uncertain", error="Radio hat die Ausspielung nicht bestätigt")
                                 write_json(path, record)
                                 log.error("Speaker broadcast acknowledgement missing: %s", target)
@@ -278,7 +364,8 @@ class Speaker:
                 record["state"] = "claimed" if playing else "skipped"
                 write_json(path, record)
                 if playing:
-                    return {"filename": record["filename"], "duration": record["duration"], "key": path.stem}
+                    return {"filename": record["filename"], "duration": record["duration"],
+                            "key": path.stem, "target": target.isoformat()}
                 log.info("Speaker skipped because radio is paused")
             elif record.get("state") == "preparing":
                 record.update(state="missed", error="Vorbereitung zur Sendezeit nicht abgeschlossen")
@@ -304,6 +391,8 @@ async def lifespan(app: FastAPI):
         pass
     if speaker.task and not speaker.task.done():
         await speaker.task
+    if speaker.transition_task and not speaker.transition_task.done():
+        await speaker.transition_task
 
 
 app = FastAPI(title="MetaWave Speaker", lifespan=lifespan)
@@ -317,21 +406,56 @@ app.add_middleware(
 
 @app.get("/status")
 async def status():
-    prepare, air = next_events(speaker.config.times, datetime.now(UTC)) if speaker.config.enabled else (None, None)
+    now = datetime.now(UTC)
+    prepare, air = next_events(speaker.config.times, now) if speaker.config.enabled else (None, None)
     latest = read_json(LATEST) if LATEST.exists() else None
     next_path = job_path(air, speaker.config) if air else None
     next_record = read_json(next_path) if next_path and next_path.exists() else None
     scheduled = [path for path in JOBS.glob("*.json") if not path.name.startswith("preview-")]
     last_scheduled = read_json(max(scheduled, key=lambda path: path.stat().st_mtime_ns)) if scheduled else None
+    last_played = None
+    last_played_time = None
+    for path in scheduled:
+        record = read_json(path)
+        if record.get("state") != "played" or not isinstance(record.get("script"), str):
+            continue
+        try:
+            target = datetime.fromisoformat(record["target"])
+            if target.tzinfo is None or target.utcoffset() is None:
+                raise ValueError("Broadcast target has no timezone")
+        except (KeyError, TypeError, ValueError):
+            log.exception("Invalid played broadcast target in %s", path)
+            continue
+        if target <= now and (last_played_time is None or target > last_played_time):
+            last_played = {"target": record["target"], "script": record["script"]}
+            if "items" in record:
+                last_played["items"] = record["items"]
+            last_played_time = target
+    if speaker.config.enabled:
+        for path in scheduled:
+            if not path.stem.endswith(f"-{revision(speaker.config)}"):
+                continue
+            record = read_json(path)
+            if record.get("state") != "claimed" or not record.get("target"):
+                continue
+            target = datetime.fromisoformat(record["target"])
+            if 0 <= (now - target).total_seconds() < 1800:
+                air = target
+                next_record = record
+                break
     return {
         "enabled": speaker.config.enabled,
         "timezone": str(ZONE),
         "next_prepare": prepare.isoformat() if prepare else None,
         "next_broadcast": air.isoformat() if air else None,
         "next_broadcast_state": next_record.get("state") if next_record else None,
+        "next_broadcast_script": next_record.get("script") if next_record and next_record.get("state") in ("ready", "claimed") else None,
+        "next_broadcast_items": next_record.get("items") if next_record and next_record.get("state") in ("ready", "claimed") else None,
         "job": speaker.current,
+        "transition_state": speaker.transition.get("state") if speaker.transition else None,
         "latest": latest,
         "last_scheduled": last_scheduled,
+        "last_broadcast": last_played,
     }
 
 
@@ -394,6 +518,28 @@ class DueRequest(BaseModel):
 @app.post("/internal/due")
 async def due(request: DueRequest):
     return {"episode": speaker.due(request.playing)}
+
+
+class TransitionRequest(BaseModel):
+    key: str
+    filename: str
+    previous: str
+    following: str
+
+    @field_validator("previous", "following")
+    @classmethod
+    def valid_title(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if not value or len(value) > 200:
+            raise ValueError("Ungültiger Songtitel")
+        return value
+
+
+@app.post("/internal/transition")
+async def transition(request: TransitionRequest):
+    if not re.fullmatch(r"\d+-[a-f0-9]{16}", request.key) or not re.fullmatch(r"speaker-[a-f0-9]{32}\.wav", request.filename):
+        raise HTTPException(400, "Ungültige Sendung")
+    return speaker.request_transition(request.key, request.filename, request.previous, request.following)
 
 
 class AckRequest(BaseModel):

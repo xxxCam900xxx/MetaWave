@@ -14,14 +14,19 @@ process.env.DB_NAME = "unused";
 let dueCalls = 0;
 let ackBody;
 let receivedRange;
+let transitionBody;
 const upstream = http.createServer(async (req, res) => {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   if (req.url === "/internal/due") {
     dueCalls++;
-    const episode = dueCalls === 1 ? { key: "123-abcdef1234567890", filename: "speaker-test.wav", duration: 5 } : null;
+    const episode = dueCalls === 1 ? { key: "123-abcdef1234567890", filename: "speaker-test.wav", duration: 5, target: new Date().toISOString() } : null;
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ episode }));
+  } else if (req.url === "/internal/transition") {
+    transitionBody = JSON.parse(Buffer.concat(chunks).toString());
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ state: "ready", filename: "speaker-combined.wav", duration: 8 }));
   } else if (req.url === "/internal/ack") {
     ackBody = JSON.parse(Buffer.concat(chunks).toString());
     res.setHeader("Content-Type", "application/json");
@@ -62,14 +67,28 @@ test("proxy requires radio authentication and forwards audio range responses", a
   assert.equal(await response.text(), "RIFF");
 });
 
-test("bridge starts the episode and acknowledges the result", async () => {
+test("bridge prepares song-specific audio and acknowledges only when the song ends", async () => {
   const started = [];
-  const radio = { isPaused: false, speakerEpisode: null, queue: [{}], startSpeaker: episode => { started.push(episode); return true; } };
+  const candidate = { previous: "First", following: "Second", previousFilename: "first.mp3", followingFilename: "second.mp3" };
+  const radio = {
+    isPaused: false, speakerEpisode: null, queue: [{}], pendingSpeaker: null,
+    queueSpeaker(episode, onResult) { this.pendingSpeaker = { episode, onResult, prepared: null }; return true; },
+    speakerCandidate() { return candidate; },
+    _speakerCandidateMatches(prepared) { return Boolean(prepared); },
+    invalidateSpeakerPreparation() {},
+    prepareSpeaker(actual, audio) { this.pendingSpeaker.prepared = actual; started.push(audio); },
+  };
   const interval = startSpeakerBridge(radio);
   try {
     const deadline = Date.now() + 4000;
-    while (!ackBody && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
+    while (!started.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
     assert.equal(started.length, 1);
+    assert.equal(ackBody, undefined);
+    assert.equal(transitionBody.previous, "First");
+    assert.equal(transitionBody.following, "Second");
+    radio.pendingSpeaker.onResult(true);
+    radio.pendingSpeaker = null;
+    while (!ackBody && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
     assert.deepEqual(ackBody, { key: "123-abcdef1234567890", filename: "speaker-test.wav", played: true });
   } finally {
     clearInterval(interval);

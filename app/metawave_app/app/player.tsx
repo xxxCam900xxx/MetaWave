@@ -11,6 +11,8 @@ import { API_BASE, WS_BASE } from "../src/config";
 import { colors } from "../src/theme";
 import { playerStyles as styles } from "../src/styles/playerStyles";
 import { parseSpeakerSchedule, speakerQueueNotice, SpeakerQueueNotice, SpeakerSchedule } from "../src/speakerQueue";
+import { fadeMusicForSpeaker, fadeSpeakerTransition } from "../src/speakerFade";
+import NewsPanel from "../src/components/NewsPanel";
 
 interface StreamMeta {
   filename?: string;
@@ -161,6 +163,9 @@ export default function PlayerScreen() {
   const metaRef = useRef<StreamMeta | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const nextSoundRef = useRef<Audio.Sound | null>(null);
+  const mountedRef = useRef(false);
+  const lifecycleRef = useRef(0);
+  const preloadVersionRef = useRef(0);
 
   const setVolumeState = (v: number) => { volumeRef.current = v; setVolume(v); };
   const setIsPlayingState = (v: boolean) => { isPlayingRef.current = v; setIsPlaying(v); };
@@ -203,6 +208,7 @@ export default function PlayerScreen() {
   const pendingControlRef = useRef<boolean>(false);
   const lastLoadedTrackKeyRef = useRef<string>("");
   const lastLoadedIsSpeakerRef = useRef(false);
+  const speakerFadeGenerationRef = useRef(0);
   const hasStartedPlaybackRef = useRef<boolean>(false);
 
   // Drag State
@@ -264,22 +270,17 @@ export default function PlayerScreen() {
     const m = optMeta ?? metaRef.current;
     let activeArrayIndex = -1;
 
-    if (m) {
+    if (m && !m.isSpeaker) {
       if (m.filename) activeArrayIndex = serverQueue.findIndex((it: any) => it.song === m.filename);
-      if (activeArrayIndex === -1 && typeof m.index === "number") activeArrayIndex = serverQueue.findIndex((it: any) => typeof it.index === "number" && it.index === m.index);
     }
     if (activeArrayIndex === -1) activeArrayIndex = serverQueue.findIndex((it: any) => Boolean(it.isPlaying));
+    if (activeArrayIndex === -1 && typeof m?.index === "number") activeArrayIndex = serverQueue.findIndex((it: any) => it.index === m.index);
     if (activeArrayIndex === -1) activeArrayIndex = 0;
 
     const mapped: QueueItem[] = serverQueue.map((it: any, arrIdx: number) => {
       const itemIndex = typeof it.index === "number" ? it.index : arrIdx;
-      const matchesMeta = m ? (m.filename ? it.song === m.filename : (typeof m.index === "number" && itemIndex === m.index)) : false;
-      const isPlaying = matchesMeta || (!m && arrIdx === activeArrayIndex);
-      let hasBeenPlayed = false;
-      
-      if (typeof m?.index === "number") hasBeenPlayed = typeof itemIndex === "number" ? itemIndex < m.index : arrIdx < m.index;
-      else hasBeenPlayed = arrIdx < activeArrayIndex;
-      if (isPlaying) hasBeenPlayed = false;
+      const isPlaying = arrIdx === activeArrayIndex;
+      const hasBeenPlayed = arrIdx < activeArrayIndex;
 
       return {
         song: it.song, title: it.title, author: it.author, duration: it.duration,
@@ -349,6 +350,9 @@ export default function PlayerScreen() {
 
   // ─── SAFE AUDIO LOADER (MUTEX PATTERN) ──────────────────────────────────────
   const safeLoadTrack = async (targetMeta: StreamMeta) => {
+    const lifecycle = lifecycleRef.current;
+    const isActive = () => mountedRef.current && lifecycleRef.current === lifecycle;
+    if (!isActive()) return;
     // 1. Wenn schon ein Prozess läuft, merken wir uns einfach den neuesten Track
     if (isAudioLockRef.current) {
       pendingTrackRef.current = targetMeta;
@@ -364,7 +368,7 @@ export default function PlayerScreen() {
 
       // 3. Schleife, falls während des Ladens ein noch neuerer Track reinkam
       while (currentMetaToLoad) {
-        if (!tokenRef.current || !currentMetaToLoad.filename) break;
+        if (!isActive() || !tokenRef.current || !currentMetaToLoad.filename) break;
 
         const trackKey = `${currentMetaToLoad.filename}:${typeof currentMetaToLoad.index === "number" ? currentMetaToLoad.index : ""}`;
         const fileUrl = `${API_BASE}/stream/file/${encodeURIComponent(currentMetaToLoad.filename)}?token=${encodeURIComponent(tokenRef.current)}`;
@@ -381,45 +385,67 @@ export default function PlayerScreen() {
             setIsPlayingState(true);
           }
         } else {
-          const fadeTransition = Boolean(soundRef.current && (lastLoadedIsSpeakerRef.current || currentMetaToLoad.isSpeaker));
-          if (fadeTransition && soundRef.current) {
-            const initialVolume = getEffectiveVolume();
-            for (let step = 3; step >= 0; step--) {
-              await soundRef.current.setVolumeAsync(initialVolume * step / 4);
-              await new Promise(resolve => setTimeout(resolve, 25));
-            }
-          }
-          // Alten Sound sicher beenden, bevor der neue geladen wird
-          if (soundRef.current) {
-            await soundRef.current.unloadAsync().catch(() => undefined);
+          const previousSound = soundRef.current;
+          const fadeTransition = Boolean(previousSound && !currentMetaToLoad.isPaused &&
+            (lastLoadedIsSpeakerRef.current || currentMetaToLoad.isSpeaker));
+          previousSound?.setOnPlaybackStatusUpdate(null);
+          if (!fadeTransition && previousSound) {
+            await previousSound.unloadAsync();
             soundRef.current = null;
           }
-
-          // Neuen Sound laden
+          if (!isActive()) break;
           const { sound } = await Audio.Sound.createAsync(
             { uri: fileUrl },
             {
-              shouldPlay: !currentMetaToLoad.isPaused,
+              shouldPlay: false,
               positionMillis: (currentMetaToLoad.elapsed || 0) * 1000,
               progressUpdateIntervalMillis: 500,
-              volume: fadeTransition && !currentMetaToLoad.isPaused ? 0 : getEffectiveVolume(currentMetaToLoad),
+              volume: fadeTransition ? 0 : getEffectiveVolume(currentMetaToLoad),
               rate: 1.0, // Catch-Up zurücksetzen
               shouldCorrectPitch: true
             }
           );
 
+          if (!isActive()) {
+            await sound.unloadAsync();
+            break;
+          }
+          if (pendingTrackRef.current) {
+            await sound.unloadAsync();
+            currentMetaToLoad = pendingTrackRef.current;
+            pendingTrackRef.current = null;
+            continue;
+          }
+          if (fadeTransition) {
+            try {
+              const elapsed = serverElapsedRef.current + (Date.now() - serverTimestampRef.current) / 1000;
+              const offset = currentMetaToLoad.duration ? Math.min(elapsed, currentMetaToLoad.duration) : elapsed;
+              await sound.setPositionAsync(Math.max(0, offset) * 1000);
+            } catch (error) {
+              await sound.unloadAsync();
+              throw error;
+            }
+          }
+          if (!isActive() || pendingTrackRef.current) {
+            await sound.unloadAsync();
+            if (!isActive()) break;
+            currentMetaToLoad = pendingTrackRef.current;
+            pendingTrackRef.current = null;
+            continue;
+          }
           soundRef.current = sound;
           lastLoadedTrackKeyRef.current = trackKey;
           lastLoadedIsSpeakerRef.current = Boolean(currentMetaToLoad.isSpeaker);
           sound.setOnPlaybackStatusUpdate(handleStatusUpdate);
-          if (fadeTransition && !currentMetaToLoad.isPaused) {
-            for (let step = 1; step <= 4; step++) {
-              await sound.setVolumeAsync(getEffectiveVolume(currentMetaToLoad) * step / 4);
-              await new Promise(resolve => setTimeout(resolve, 25));
-            }
+          if (fadeTransition && previousSound) {
+            await fadeSpeakerTransition(previousSound, sound, () => getEffectiveVolume(currentMetaToLoad),
+              () => soundRef.current === sound && !metaRef.current?.isPaused && !pendingTrackRef.current);
+          } else if (!metaRef.current?.isPaused && !pendingTrackRef.current) {
+            await sound.playAsync();
           }
+          if (!isActive()) break;
           
-          setIsPlayingState(!currentMetaToLoad.isPaused);
+          setIsPlayingState(!metaRef.current?.isPaused);
           setError(null);
           
           // Nächsten Song im Hintergrund preloaden (silent errors)
@@ -432,11 +458,16 @@ export default function PlayerScreen() {
       }
     } catch (err) {
       console.error("Audio Load Error:", err);
-      setError("Song konnte nicht geladen werden.");
+      if (isActive()) setError("Song konnte nicht geladen werden.");
     } finally {
       // 5. Lock aufheben
       isAudioLockRef.current = false;
-      setPlaybackLoading(false);
+      if (isActive()) setPlaybackLoading(false);
+      if (mountedRef.current && pendingTrackRef.current) {
+        const pending = pendingTrackRef.current;
+        pendingTrackRef.current = null;
+        void safeLoadTrack(pending);
+      }
     }
   };
 
@@ -501,6 +532,8 @@ export default function PlayerScreen() {
 
   useEffect(() => {
     let active = true;
+    mountedRef.current = true;
+    const lifecycle = ++lifecycleRef.current;
     let speakerTimer: ReturnType<typeof setInterval> | null = null;
     let speakerRequest: AbortController | null = null;
     let speakerErrorLogged = false;
@@ -542,12 +575,16 @@ export default function PlayerScreen() {
         void fetchSpeakerStatus();
         speakerTimer = setInterval(fetchSpeakerStatus, 15000);
         await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, staysActiveInBackground: true });
-
+        if (!active) return;
         await fetchMetadata();
+        if (!active) return;
         await fetchQueue();
+        if (!active) return;
         await loadVolume();
-        setupWebSocket();
+        if (!active) return;
+        setupWebSocket(lifecycle);
         await validateToken();
+        if (!active) return;
 
         authIntervalRef.current = setInterval(validateToken, 600000);
         syncIntervalRef.current = setInterval(syncCheck, 10000);
@@ -572,14 +609,18 @@ export default function PlayerScreen() {
           safeLoadTrack(metaRef.current);
         }
 
-      } catch (err) { setError("Konnte Audio-Stream nicht starten."); } 
-      finally { setLoading(false); }
+      } catch (err) { if (active) setError("Konnte Audio-Stream nicht starten."); }
+      finally { if (active) setLoading(false); }
     };
 
     init();
 
     return () => {
       active = false;
+      mountedRef.current = false;
+      lifecycleRef.current++;
+      preloadVersionRef.current++;
+      pendingTrackRef.current = null;
       if (speakerTimer) clearInterval(speakerTimer);
       if (speakerRequest) speakerRequest.abort();
       if (localTimerRef.current) clearInterval(localTimerRef.current);
@@ -588,8 +629,12 @@ export default function PlayerScreen() {
       if (wsReconnectTimeoutRef.current) clearTimeout(wsReconnectTimeoutRef.current);
       if (fallbackTimeoutRef.current) clearTimeout(fallbackTimeoutRef.current);
 
-      if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
-      if (soundRef.current) { soundRef.current.unloadAsync().catch(() => undefined); soundRef.current = null; }
+      if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.onmessage = null; wsRef.current.close(); wsRef.current = null; }
+      if (soundRef.current) {
+        soundRef.current.setOnPlaybackStatusUpdate(null);
+        soundRef.current.unloadAsync().catch(err => console.error("Audio konnte nicht freigegeben werden:", err));
+        soundRef.current = null;
+      }
       if (nextSoundRef.current) { nextSoundRef.current.unloadAsync().catch(() => undefined); nextSoundRef.current = null; }
       
       hasStartedPlaybackRef.current = false;
@@ -598,8 +643,8 @@ export default function PlayerScreen() {
     };
   }, []);
 
-  const setupWebSocket = () => {
-    if (!tokenRef.current) return;
+  const setupWebSocket = (lifecycle: number) => {
+    if (!tokenRef.current || !mountedRef.current || lifecycleRef.current !== lifecycle) return;
     if (wsReconnectTimeoutRef.current) clearTimeout(wsReconnectTimeoutRef.current);
 
     try {
@@ -607,10 +652,27 @@ export default function PlayerScreen() {
       wsRef.current = ws;
 
       ws.onmessage = (event) => {
+        if (!mountedRef.current || lifecycleRef.current !== lifecycle || wsRef.current !== ws) return;
         try {
           const data = JSON.parse(event.data);
           if (data?.type === "trackChanged" && data.meta) handleTrackChanged(data.meta, Array.isArray(data.queue) ? data.queue : undefined);
           else if (data?.type === "playbackStateChanged" && data.meta) handlePlaybackState(data.meta);
+          else if (data?.type === "speakerFadeOut" && typeof data.filename === "string" &&
+                   typeof data.duration === "number" && data.duration > 0) {
+            const sound = soundRef.current;
+            const filename = data.filename;
+            if (sound && metaRef.current?.filename === filename && !metaRef.current?.isPaused) {
+              const stillCurrent = () => soundRef.current === sound && metaRef.current?.filename === filename;
+              const generation = ++speakerFadeGenerationRef.current;
+              fadeMusicForSpeaker(sound, () => getEffectiveVolume(),
+                () => stillCurrent() && !metaRef.current?.isPaused && generation === speakerFadeGenerationRef.current,
+                stillCurrent, Math.min(data.duration, 3000)).catch(error => console.error("Speaker fade failed:", error));
+            }
+          }
+          else if (data?.type === "speakerFadeCancel" && data.filename === metaRef.current?.filename) {
+            speakerFadeGenerationRef.current++;
+            applyCurrentVolume(soundRef.current);
+          }
           else if (data?.type === "queueUpdated" && data.queue) applyQueueFromServer(Array.isArray(data.queue?.queue) ? data.queue.queue : data.queue);
           else if (data?.type === "volumeChanged" && typeof data.volume === "number") {
             setVolumeState(Number(data.volume));
@@ -618,8 +680,14 @@ export default function PlayerScreen() {
           }
         } catch (e) {}
       };
-      ws.onclose = () => { wsRef.current = null; wsReconnectTimeoutRef.current = setTimeout(setupWebSocket, 3000); };
-    } catch { wsReconnectTimeoutRef.current = setTimeout(setupWebSocket, 5000); }
+      ws.onclose = () => {
+        if (wsRef.current !== ws || !mountedRef.current || lifecycleRef.current !== lifecycle) return;
+        wsRef.current = null;
+        wsReconnectTimeoutRef.current = setTimeout(() => setupWebSocket(lifecycle), 3000);
+      };
+    } catch {
+      wsReconnectTimeoutRef.current = setTimeout(() => setupWebSocket(lifecycle), 5000);
+    }
   };
 
   const loadVolume = async () => {
@@ -662,16 +730,25 @@ export default function PlayerScreen() {
 
   const preloadNextSong = async () => {
     if (!tokenRef.current) return;
+    const lifecycle = lifecycleRef.current;
+    const version = ++preloadVersionRef.current;
     try {
       const res = await fetch(`${API_BASE}/stream/prefetch`, { headers: { Authorization: `Bearer ${tokenRef.current}` } });
       if (!res.ok) return;
       const json = await res.json();
-      if (!json?.next?.filename) return;
-
-      if (nextSoundRef.current) await nextSoundRef.current.unloadAsync().catch(() => undefined);
+      if (!json?.next?.filename || !mountedRef.current || lifecycleRef.current !== lifecycle || version !== preloadVersionRef.current) return;
       const { sound } = await Audio.Sound.createAsync({ uri: `${API_BASE}/stream/file/${encodeURIComponent(json.next.filename)}?token=${encodeURIComponent(tokenRef.current)}` }, { shouldPlay: false, volume: getEffectiveVolume(metaRef.current) });
+      if (!mountedRef.current || lifecycleRef.current !== lifecycle || version !== preloadVersionRef.current) {
+        await sound.unloadAsync();
+        return;
+      }
+      if (nextSoundRef.current) await nextSoundRef.current.unloadAsync();
+      if (!mountedRef.current || lifecycleRef.current !== lifecycle || version !== preloadVersionRef.current) {
+        await sound.unloadAsync();
+        return;
+      }
       nextSoundRef.current = sound;
-    } catch {}
+    } catch (err) { console.warn("Nächster Song konnte nicht vorgeladen werden:", err); }
   };
 
   const fetchMetadata = async (force = false) => {
@@ -726,10 +803,15 @@ export default function PlayerScreen() {
     }
   };
 
-  const callControl = async (path: string) => {
+  const callControl = async (path: string, data?: { filename: string }) => {
     if (!tokenRef.current) return;
     try {
-      await fetch(`${API_BASE}${path}`, { headers: { Authorization: `Bearer ${tokenRef.current}` } });
+      const response = await fetch(`${API_BASE}${path}`, {
+        method: data ? "POST" : "GET",
+        headers: { Authorization: `Bearer ${tokenRef.current}`, ...(data ? { "Content-Type": "application/json" } : {}) },
+        body: data ? JSON.stringify(data) : undefined,
+      });
+      if (!response.ok) throw new Error(`Steuerbefehl fehlgeschlagen: HTTP ${response.status}`);
       if (path.includes('/skip') || path.includes('/previous') || path.includes('/jumpto')) {
         if (fallbackTimeoutRef.current) clearTimeout(fallbackTimeoutRef.current);
         pendingControlRef.current = true;
@@ -912,7 +994,7 @@ export default function PlayerScreen() {
                     key={`${item.index}-${item.song}`} item={item} arrayIndex={arrayIndex}
                     active={item.isPlaying} played={Boolean(item.hasBeenPlayed) && !item.isPlaying}
                     isDragSource={dragFromIdx === arrayIndex} isDragTarget={dragToIdx === arrayIndex && dragFromIdx !== null && dragFromIdx !== arrayIndex}
-                    onLayout={stableOnLayout} onPress={() => { callControl(`/stream/control/jumpto/${item.index}`); collapseSheet(); }}
+                    onLayout={stableOnLayout} onPress={() => { callControl("/stream/control/jumpto", { filename: item.song }); collapseSheet(); }}
                     onDragStart={stableDragStart} onDragMove={stableDragMove} onDragEnd={stableDragEnd}
                   />
                 ))}
@@ -921,8 +1003,13 @@ export default function PlayerScreen() {
           </Animated.View>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={[styles.centerContent, isDesktop && styles.centerContentDesktop]} showsVerticalScrollIndicator={false}>
-          <View style={[styles.playerColumn, isDesktop && styles.playerColumnDesktop]}>
+        <ScrollView contentContainerStyle={[styles.centerContent, isDesktop && styles.centerContentDesktop,
+          isDesktop && { paddingLeft: width < 1200 ? 238 : 308, paddingRight: width < 1200 ? 328 : 448 }]} showsVerticalScrollIndicator={false}>
+          {isDesktop && (
+            <NewsPanel schedule={speakerSchedule} unavailable={speakerUnavailable} notice={speakerNotice} narrow={width < 1200} />
+          )}
+          <View style={[styles.playerColumn, isDesktop && styles.playerColumnDesktop,
+            isDesktop && { minWidth: 0 }, isDesktop && width < 1200 && { marginRight: 16 }]}>
             {meta?.cover ? (
               <Image source={{ uri: meta.cover }} style={[styles.cover, isDesktop && styles.coverDesktop]} />
             ) : (
@@ -985,7 +1072,8 @@ export default function PlayerScreen() {
             </View>
           </View>
 
-          <View style={[styles.queueContainer, isDesktop && styles.queueContainerDesktop]}>
+          <View style={[styles.queueContainer, isDesktop && styles.queueContainerDesktop,
+            isDesktop && width < 1200 && { minWidth: 280, width: 280 }]}>
             {isDesktop && <View style={styles.queueHandleDesktop} />}
             <Text style={styles.queueHeader} selectable={false}>Queue</Text>
             <SpeakerQueueRow notice={speakerNotice} />
@@ -1009,7 +1097,7 @@ export default function PlayerScreen() {
                     key={`${item.index}-${item.song}`} item={item} arrayIndex={arrayIndex}
                     active={item.isPlaying} played={Boolean(item.hasBeenPlayed) && !item.isPlaying}
                     isDragSource={dragFromIdx === arrayIndex} isDragTarget={dragToIdx === arrayIndex && dragFromIdx !== null && dragFromIdx !== arrayIndex}
-                    onLayout={stableOnLayout} onPress={() => callControl(`/stream/control/jumpto/${item.index}`)}
+                    onLayout={stableOnLayout} onPress={() => callControl("/stream/control/jumpto", { filename: item.song })}
                     onDragStart={stableDragStart} onDragMove={stableDragMove} onDragEnd={stableDragEnd}
                   />
                 ))}

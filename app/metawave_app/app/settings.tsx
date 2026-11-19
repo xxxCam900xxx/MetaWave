@@ -285,7 +285,7 @@ export default function SettingsScreen() {
               <View style={styles.scheduleHeader}>
                 <View style={styles.settingInfo}>
                   <Text style={styles.settingLabel}>Arbeitszeiten</Text>
-                  <Text style={styles.settingDescription}>Radio täglich innerhalb dieses Zeitfensters automatisch einschalten</Text>
+                  <Text style={styles.settingDescription}>Radio täglich innerhalb dieses Zeitfensters automatisch einschalten (Schweizer Ortszeit)</Text>
                 </View>
                 <Switch
                   value={workScheduleEnabled}
@@ -370,7 +370,7 @@ export default function SettingsScreen() {
       {/* Mobile: Back button fixed at bottom center (outside ScrollView) */}
       {!isDesktop && (
         <View style={styles.mobileBackButtonContainer}>
-          <TouchableOpacity style={styles.mobileBackButton} onPress={() => router.push("/player" as any)}>
+          <TouchableOpacity style={styles.mobileBackButton} onPress={() => router.dismissTo("/player")}>
             <Text style={styles.mobileBackButtonText}>Zurück</Text>
           </TouchableOpacity>
         </View>
@@ -379,7 +379,7 @@ export default function SettingsScreen() {
       {/* Desktop: Back button centered under settings */}
       {isDesktop && (
         <View style={styles.desktopBackButtonContainer}>
-          <TouchableOpacity style={styles.desktopBackButton} onPress={() => router.push("/player" as any)}>
+          <TouchableOpacity style={styles.desktopBackButton} onPress={() => router.dismissTo("/player")}>
             <Text style={styles.desktopBackButtonText}>Zurück</Text>
           </TouchableOpacity>
         </View>

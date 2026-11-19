@@ -18,6 +18,9 @@ import { getRadioSchedule, storeRadioSchedule } from "../database/DatabaseLogic.
 
 const SONGS_DIR = path.resolve("/songs");
 const METADATA_FILE = path.join(SONGS_DIR, "metadata.json");
+const workTimeFormatter = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Zurich", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+});
 
 export class RadioEngine extends EventEmitter {
   constructor() {
@@ -40,6 +43,8 @@ export class RadioEngine extends EventEmitter {
     this._trackStartedAt = Date.now();
     this._trackTimer = null;
     this.speakerEpisode = null;
+    this.pendingSpeaker = null;
+    this._speakerFadeTimer = null;
 
     // Periodic metadata hot-reload: check every 30 s whether metadata.json changed
     // so that covers, durations and LUFS values become available without restart.
@@ -66,7 +71,9 @@ export class RadioEngine extends EventEmitter {
 
   _shouldPlayForWorkSchedule(now = new Date()) {
     const { startTime, endTime } = this.workSchedule;
-    const currentTime = now.getHours() * 60 + now.getMinutes();
+    const parts = workTimeFormatter.formatToParts(now);
+    const currentTime = Number(parts.find(part => part.type === "hour").value) * 60 +
+      Number(parts.find(part => part.type === "minute").value);
     const [startHour, startMinute] = startTime.split(":").map(Number);
     const [endHour, endMinute] = endTime.split(":").map(Number);
     const start = startHour * 60 + startMinute;
@@ -227,6 +234,8 @@ export class RadioEngine extends EventEmitter {
    * Sets up a server-side timer that fires when the song duration elapses.
    */
   _startTrack(index) {
+    if (this._speakerFadeTimer) clearTimeout(this._speakerFadeTimer);
+    this._speakerFadeTimer = null;
     if (this._trackTimer) {
       clearTimeout(this._trackTimer);
       this._trackTimer = null;
@@ -285,6 +294,13 @@ export class RadioEngine extends EventEmitter {
       this._finishSpeaker();
       return;
     }
+    if (this.pendingSpeaker && this._speakerCandidateMatches(this.pendingSpeaker.prepared)) {
+      const { prepared, onResult } = this.pendingSpeaker;
+      this.pendingSpeaker = null;
+      const played = this.startSpeaker({ ...prepared.audio, nextFilename: prepared.followingFilename });
+      onResult(played);
+      if (played) return;
+    }
     const next = this.currentIndex + 1;
     if (next >= this.queue.length) {
       console.log("[RadioEngine] Ende der Queue – shuffle und von vorn");
@@ -334,7 +350,75 @@ export class RadioEngine extends EventEmitter {
     return path.join(SONGS_DIR, safe);
   }
 
-  startSpeaker({ filename, duration }) {
+  speakerCandidate() {
+    if (!this.queue.length || this.speakerEpisode) return null;
+    const previous = this.queue[this.currentIndex];
+    const following = this.queue[(this.currentIndex + 1) % this.queue.length];
+    if (!previous || !following) return null;
+    return {
+      previousFilename: previous.filename,
+      followingFilename: following.filename,
+      previous: previous.title || previous.filename,
+      following: following.title || following.filename,
+    };
+  }
+
+  _speakerCandidateMatches(prepared) {
+    const candidate = this.speakerCandidate();
+    return Boolean(prepared && candidate && Object.keys(candidate).every(key => candidate[key] === prepared[key]));
+  }
+
+  queueSpeaker(episode, onResult) {
+    if (this.isPaused || this.speakerEpisode || this.pendingSpeaker || !this.queue.length ||
+        !/^speaker-[a-f0-9]{32}\.wav$/.test(episode.filename) ||
+        !fs.existsSync(this.getSongFilePath(episode.filename))) return false;
+    this.pendingSpeaker = { episode, prepared: null, onResult };
+    return true;
+  }
+
+  prepareSpeaker(candidate, audio) {
+    if (!this.pendingSpeaker || !this._speakerCandidateMatches(candidate)) return false;
+    this.pendingSpeaker.prepared = { ...candidate, audio };
+    this._scheduleSpeakerFade();
+    return true;
+  }
+
+  invalidateSpeakerPreparation() {
+    if (!this.pendingSpeaker?.prepared) return;
+    this.pendingSpeaker.prepared = null;
+    if (this._speakerFadeTimer) clearTimeout(this._speakerFadeTimer);
+    this._speakerFadeTimer = null;
+    const payload = JSON.stringify({ type: "speakerFadeCancel", filename: this.queue[this.currentIndex]?.filename });
+    for (const ws of this.wsClients) if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+  }
+
+  failPendingSpeaker() {
+    if (!this.pendingSpeaker) return;
+    this.invalidateSpeakerPreparation();
+    const { onResult } = this.pendingSpeaker;
+    this.pendingSpeaker = null;
+    if (this._speakerFadeTimer) clearTimeout(this._speakerFadeTimer);
+    this._speakerFadeTimer = null;
+    onResult(false);
+  }
+
+  _scheduleSpeakerFade() {
+    if (this._speakerFadeTimer) clearTimeout(this._speakerFadeTimer);
+    this._speakerFadeTimer = null;
+    const pending = this.pendingSpeaker;
+    const song = this.queue[this.currentIndex];
+    if (this.isPaused || !song?.duration || !this._speakerCandidateMatches(pending?.prepared)) return;
+    const remaining = Math.max(0, song.duration * 1000 - this._getElapsedMilliseconds());
+    this._speakerFadeTimer = setTimeout(() => {
+      this._speakerFadeTimer = null;
+      if (this.isPaused || !this._speakerCandidateMatches(this.pendingSpeaker?.prepared)) return;
+      const duration = Math.max(0, song.duration * 1000 - this._getElapsedMilliseconds());
+      const payload = JSON.stringify({ type: "speakerFadeOut", filename: song.filename, duration });
+      for (const ws of this.wsClients) if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+    }, Math.max(0, remaining - 3000));
+  }
+
+  startSpeaker({ filename, duration, key = null, nextFilename = null }) {
     if (this.isPaused || this.speakerEpisode || !this.queue.length ||
         !/^speaker-[a-f0-9]{32}\.wav$/.test(filename) ||
         !Number.isFinite(duration) || duration <= 0 ||
@@ -342,7 +426,7 @@ export class RadioEngine extends EventEmitter {
     const musicElapsed = this._getElapsedMilliseconds();
     if (this._trackTimer) clearTimeout(this._trackTimer);
     this._trackTimer = null;
-    this.speakerEpisode = { filename, duration, musicElapsed, startedAt: Date.now() };
+    this.speakerEpisode = { filename, duration, musicElapsed, startedAt: Date.now(), key, nextFilename };
     this._pausedElapsed = 0;
     this._scheduleTrackAdvance(duration);
     this._broadcastTrackChanged();
@@ -354,8 +438,17 @@ export class RadioEngine extends EventEmitter {
     if (!this.speakerEpisode) return;
     if (this._trackTimer) clearTimeout(this._trackTimer);
     this._trackTimer = null;
-    const musicElapsed = this.speakerEpisode.musicElapsed;
+    const { musicElapsed, nextFilename } = this.speakerEpisode;
     this.speakerEpisode = null;
+    if (nextFilename) {
+      const next = this.queue.findIndex(song => song.filename === nextFilename);
+      if (next >= 0) {
+        this._startTrack(next);
+        console.log("[RadioEngine] Speaker finished; announced song started");
+        return;
+      }
+      console.error("[RadioEngine] Announced song is no longer in the queue:", nextFilename);
+    }
     this._pausedElapsed = musicElapsed / 1000;
     this._trackStartedAt = Date.now() - musicElapsed;
     this._scheduleTrackAdvance(this.queue[this.currentIndex]?.duration || 0);
@@ -429,6 +522,8 @@ export class RadioEngine extends EventEmitter {
 
   pause(reason = "Manuell pausiert") {
     if (this.isPaused) return;
+    if (this._speakerFadeTimer) clearTimeout(this._speakerFadeTimer);
+    this._speakerFadeTimer = null;
     this._pausedElapsed = Math.floor(this._getElapsedMilliseconds() / 1000);
     if (this._trackTimer) clearTimeout(this._trackTimer);
     this._trackTimer = null;
@@ -445,6 +540,7 @@ export class RadioEngine extends EventEmitter {
     else this._trackStartedAt = Date.now() - this._pausedElapsed * 1000;
     this.isPaused = false;
     this._scheduleTrackAdvance(this.speakerEpisode?.duration || song?.duration || 0);
+    this._scheduleSpeakerFade();
     console.log(`[RadioEngine] Fortgesetzt bei ${this._pausedElapsed}s: ${reason}`);
     this._broadcastPlaybackState();
     this._broadcastTrackChanged();
@@ -514,6 +610,14 @@ export class RadioEngine extends EventEmitter {
     this.lastQueueHash = null;
     this.cachedQueueState = null;
     this._startTrack(insertPos);
+  }
+
+  jumpToSong(filename) {
+    if (typeof filename !== "string" || !filename) return false;
+    const index = this.queue.findIndex(song => song.filename === filename);
+    if (index < 0) return false;
+    this.jumpto(index);
+    return true;
   }
 
   /**

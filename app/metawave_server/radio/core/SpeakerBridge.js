@@ -73,6 +73,35 @@ export function startSpeakerBridge(radio) {
         if (!ack.ok) throw new Error(`Acknowledgement HTTP ${ack.status}`);
         pendingAck = null;
       }
+      if (radio.pendingSpeaker) {
+        const { episode } = radio.pendingSpeaker;
+        if (Date.now() - Date.parse(episode.target) >= 1800000) {
+          console.error("[Speaker] Timed out waiting for a suitable song transition");
+          radio.failPendingSpeaker();
+          return;
+        }
+        const candidate = radio.speakerCandidate();
+        if (!candidate) return;
+        if (!radio._speakerCandidateMatches(radio.pendingSpeaker.prepared)) radio.invalidateSpeakerPreparation();
+        const response = await fetch(`${base}/internal/transition`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: episode.key, filename: episode.filename,
+            previous: candidate.previous, following: candidate.following,
+          }),
+          signal: AbortSignal.timeout(2000),
+        });
+        if (!response.ok) throw new Error(`Transition HTTP ${response.status}`);
+        const result = await response.json();
+        if (result.state === "ready" && !radio._speakerCandidateMatches(radio.pendingSpeaker?.prepared)) {
+          radio.prepareSpeaker(candidate, { filename: result.filename, duration: result.duration });
+        } else if (result.state === "failed") {
+          console.error("[Speaker] Transition preparation failed:", result.error);
+          radio.failPendingSpeaker();
+        }
+        return;
+      }
       const response = await fetch(`${base}/internal/due`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -82,9 +111,13 @@ export function startSpeakerBridge(radio) {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const { episode } = await response.json();
       if (episode) {
-        const played = radio.startSpeaker(episode);
-        pendingAck = { key: episode.key, filename: episode.filename, played };
-        if (!played) console.error("[Speaker] Scheduled episode could not be played:", episode.filename);
+        const accepted = radio.queueSpeaker(episode, played => {
+          pendingAck = { key: episode.key, filename: episode.filename, played };
+        });
+        if (!accepted) {
+          pendingAck = { key: episode.key, filename: episode.filename, played: false };
+          console.error("[Speaker] Scheduled episode could not be queued:", episode.filename);
+        }
       }
     } catch (err) {
       if (Date.now() - lastError > 60000) {

@@ -17,6 +17,7 @@ export default function SpeakerSettings({ token, isDesktop }: { token: string; i
   const [message, setMessage] = useState("");
   const sound = useRef<Audio.Sound | null>(null);
   const mounted = useRef(true);
+  const previewVersion = useRef(0);
 
   const request = useCallback(async <T,>(path: string, method = "GET", data?: unknown): Promise<T> => {
     const res = await fetch(`${API_BASE}/speaker${path}`, {
@@ -50,6 +51,7 @@ export default function SpeakerSettings({ token, isDesktop }: { token: string; i
     load();
     return () => {
       mounted.current = false;
+      previewVersion.current++;
       if (sound.current) sound.current.unloadAsync().catch(console.error);
       sound.current = null;
     };
@@ -95,19 +97,24 @@ export default function SpeakerSettings({ token, isDesktop }: { token: string; i
   };
 
   const playPreview = useCallback(async (jobId?: string) => {
+    const version = ++previewVersion.current;
     try {
-      if (sound.current) await sound.current.unloadAsync();
+      const previous = sound.current;
       sound.current = null;
+      if (previous) await previous.unloadAsync();
       await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+      if (!mounted.current || version !== previewVersion.current) return;
       const { sound: next } = await Audio.Sound.createAsync(
         { uri: `${API_BASE}/speaker${jobId ? `/jobs/${jobId}/audio` : "/audio/latest"}?token=${encodeURIComponent(token)}&v=${Date.now()}` },
-        { shouldPlay: true },
+        { shouldPlay: false },
       );
-      if (!mounted.current) {
+      if (!mounted.current || version !== previewVersion.current) {
         await next.unloadAsync();
         return;
       }
       sound.current = next;
+      await next.playAsync();
+      if (!mounted.current || version !== previewVersion.current) return;
       setMessage("Vorschau wird nur auf diesem Gerät abgespielt.");
     } catch (error) {
       console.error("Speaker preview failed", error);
@@ -186,7 +193,7 @@ export default function SpeakerSettings({ token, isDesktop }: { token: string; i
           <View style={styles.scheduleHeader}>
             <View style={styles.settingInfo}>
               <Text style={styles.settingLabel}>Automatische Beiträge</Text>
-              <Text style={styles.settingDescription}>Vorbereitung eine Stunde vor der Sendezeit (Europe/Zurich)</Text>
+              <Text style={styles.settingDescription}>Vorbereitung eine Stunde vorher; Ausspielung ab der Sendezeit nach einem Liedende (Schweizer Ortszeit)</Text>
             </View>
             <Switch value={config.enabled} disabled={busy} onValueChange={saveSettings}
               trackColor={{ false: "#3a3a3a", true: "#4CAF50" }} thumbColor="#ffffff" />

@@ -18,6 +18,7 @@ class NewsItem:
     title: str
     summary: str
     source: str
+    url: str | None = None
 
 
 class LLMError(RuntimeError):
@@ -70,8 +71,8 @@ def generate_script(
             {
                 "role": "system",
                 "content": (
-                    "Du bist live am Mikrofon und moderierst die Nachrichten bei "
-                    "MetaWave für ein Publikum in der Schweiz. Sprich die Hörerinnen "
+                    "Du bist Alex und moderierst das MetaWave Update bei "
+                    "MetaWave Radio für ein Publikum in der Schweiz. Sprich die Hörerinnen "
                     "und Hörer freundlich und natürlich mit ihr und euch an, wie in "
                     "einer echten Radiosendung. Erzähle "
                     "die wichtigsten Meldungen in etwa 160 bis 210 Wörtern, in kurzen vollständigen "
@@ -113,4 +114,8 @@ def generate_script(
 
     hour = target_time.hour
     greeting = "Guten Morgen" if 5 <= hour < 12 else "Guten Tag" if 12 <= hour < 18 else "Guten Abend" if hour >= 18 else "Hallo"
-    return f"{greeting}, schön, dass ihr dabei seid. Es ist {_spoken_time(target_time)}.\n\n{body}\n\n{OUTRO}"
+    return (
+        f"{greeting} und willkommen bei MetaWave Radio, eurem Sender für die besten Hits. "
+        f"Ich bin Alex und hier ist euer MetaWave Update um {_spoken_time(target_time)}.\n\n"
+        f"{body}\n\n{OUTRO}"
+    )

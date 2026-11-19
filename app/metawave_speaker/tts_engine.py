@@ -29,6 +29,17 @@ def _chunks(text: str, max_words: int = 45) -> list[str]:
     return chunks
 
 
+def _normalize(samples):
+    import numpy as np
+
+    peak = float(np.max(np.abs(samples)))
+    rms = float(np.sqrt(np.mean(np.square(samples, dtype=np.float64))))
+    if not np.isfinite(peak) or not np.isfinite(rms) or peak == 0 or rms == 0:
+        raise RuntimeError("Qwen TTS returned silent or invalid audio")
+    gain = min(0.9 / peak, 0.18 / rms, 8.0)
+    return samples * gain
+
+
 class TTSEngine:
     def __init__(self) -> None:
         self.model = None
@@ -80,6 +91,6 @@ class TTSEngine:
                 raise RuntimeError("Qwen TTS returned inconsistent sample rates")
             rate = chunk_rate
             audio.append(waves[0])
-        samples = np.concatenate(audio)
+        samples = _normalize(np.concatenate(audio))
         sf.write(str(output), samples, rate, format="WAV", subtype="PCM_16")
         return len(samples) / rate

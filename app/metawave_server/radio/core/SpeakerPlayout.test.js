@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import http from "node:http";
+import { once } from "node:events";
 import { afterEach, test } from "node:test";
 import mysql from "mysql2/promise";
 
@@ -29,6 +31,9 @@ function resetRadio() {
   radio.currentIndex = 0;
   radio.isPaused = false;
   radio.speakerEpisode = null;
+  radio.pendingSpeaker = null;
+  if (radio._speakerFadeTimer) clearTimeout(radio._speakerFadeTimer);
+  radio._speakerFadeTimer = null;
   radio._trackStartedAt = Date.now() - 12_000;
   radio._pausedElapsed = 0;
 }
@@ -36,6 +41,94 @@ function resetRadio() {
 afterEach(() => {
   if (radio._trackTimer) clearTimeout(radio._trackTimer);
   radio._trackTimer = null;
+  if (radio._speakerFadeTimer) clearTimeout(radio._speakerFadeTimer);
+  radio._speakerFadeTimer = null;
+});
+
+test("prepared broadcast waits for the song to finish and plays the announced next track", () => {
+  resetRadio();
+  radio.queue[1].title = "Next song";
+  const results = [];
+  assert.equal(radio.queueSpeaker({ filename, key: "key" }, played => results.push(played)), true);
+  const candidate = radio.speakerCandidate();
+  assert.equal(candidate.previous, "Music");
+  assert.equal(candidate.following, "Next song");
+  assert.equal(radio.prepareSpeaker(candidate, { filename, duration: 10 }), true);
+  assert.equal(radio.getMeta().filename, "music.mp3");
+  assert.deepEqual(results, []);
+  radio._autoAdvance();
+  assert.equal(radio.getMeta().isSpeaker, true);
+  assert.deepEqual(results, [true]);
+  radio.queue.push({ filename: "third.mp3", title: "Third", duration: 60 });
+  radio.moveInQueue(1, 2);
+  radio._finishSpeaker();
+  assert.equal(radio.getMeta().filename, "next.mp3");
+});
+
+test("changed queue invalidates old song announcements and waits for another song end", () => {
+  resetRadio();
+  radio.queue.push({ filename: "third.mp3", title: "Third", duration: 60 });
+  const results = [];
+  radio.queueSpeaker({ filename, key: "key" }, played => results.push(played));
+  const candidate = radio.speakerCandidate();
+  radio.prepareSpeaker(candidate, { filename, duration: 10 });
+  radio.moveInQueue(2, 1);
+  radio._autoAdvance();
+  assert.equal(radio.getMeta().filename, "third.mp3");
+  assert.equal(radio.getMeta().isSpeaker, false);
+  assert.deepEqual(results, []);
+  const updated = radio.speakerCandidate();
+  assert.equal(updated.previous, "Third");
+  assert.equal(radio.prepareSpeaker(updated, { filename, duration: 10 }), true);
+  radio._autoAdvance();
+  assert.equal(radio.getMeta().isSpeaker, true);
+  assert.deepEqual(results, [true]);
+});
+
+test("bridge and radio prepare, wait, play and acknowledge a complete handoff", async () => {
+  resetRadio();
+  radio.queue[1].title = "Next song";
+  let due = 0;
+  let acknowledged = null;
+  const upstream = http.createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    res.setHeader("Content-Type", "application/json");
+    if (req.url === "/internal/due") {
+      res.end(JSON.stringify({ episode: due++ === 0
+        ? { filename, duration: 10, key: "123-abcdef1234567890", target: new Date().toISOString() }
+        : null }));
+    } else if (req.url === "/internal/transition") {
+      assert.equal(body.previous, "Music");
+      assert.equal(body.following, "Next song");
+      res.end(JSON.stringify({ state: "ready", filename, duration: 10 }));
+    } else {
+      acknowledged = body;
+      res.end(JSON.stringify({ state: "played" }));
+    }
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  process.env.SPEAKER_URL = `http://127.0.0.1:${upstream.address().port}`;
+  const { startSpeakerBridge } = await import("./SpeakerBridge.js");
+  const interval = startSpeakerBridge(radio);
+  try {
+    const deadline = Date.now() + 5000;
+    while (!radio.pendingSpeaker?.prepared && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
+    assert.ok(radio.pendingSpeaker?.prepared);
+    assert.equal(radio.getMeta().filename, "music.mp3");
+    assert.equal(acknowledged, null);
+    radio._autoAdvance();
+    assert.equal(radio.getMeta().isSpeaker, true);
+    while (!acknowledged && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(acknowledged?.played, true);
+    radio._finishSpeaker();
+    assert.equal(radio.getMeta().filename, "next.mp3");
+  } finally {
+    clearInterval(interval);
+    await new Promise(resolve => upstream.close(resolve));
+  }
 });
 
 test("speaker interrupts and then resumes the same music position", () => {
@@ -69,4 +162,31 @@ test("manual skip cancels the speaker and advances the queue", () => {
   radio.skip();
   assert.equal(radio.getMeta().filename, "next.mp3");
   assert.equal(radio.getMeta().isSpeaker, false);
+});
+
+test("work schedule uses Zurich local time in winter, summer and DST transitions", () => {
+  radio.workSchedule = { enabled: true, startTime: "09:00", endTime: "17:00" };
+  assert.equal(radio._shouldPlayForWorkSchedule(new Date("2026-01-15T07:59:00Z")), false);
+  assert.equal(radio._shouldPlayForWorkSchedule(new Date("2026-01-15T08:00:00Z")), true);
+  assert.equal(radio._shouldPlayForWorkSchedule(new Date("2026-07-15T06:59:00Z")), false);
+  assert.equal(radio._shouldPlayForWorkSchedule(new Date("2026-07-15T07:00:00Z")), true);
+  radio.workSchedule = { enabled: true, startTime: "02:00", endTime: "03:00" };
+  assert.equal(radio._shouldPlayForWorkSchedule(new Date("2026-03-29T01:00:00Z")), false);
+  assert.equal(radio._shouldPlayForWorkSchedule(new Date("2026-10-25T00:30:00Z")), true);
+  assert.equal(radio._shouldPlayForWorkSchedule(new Date("2026-10-25T01:30:00Z")), true);
+});
+
+test("jump by filename selects the intended track and cover after queue reordering", () => {
+  resetRadio();
+  radio.queue = [
+    { filename: "a.mp3", title: "A", cover: "cover-a", duration: 60 },
+    { filename: "b.mp3", title: "B", cover: "cover-b", duration: 60 },
+    { filename: "c.mp3", title: "C", cover: "cover-c", duration: 60 },
+  ];
+  radio.moveInQueue(2, 1);
+  assert.equal(radio.jumpToSong("b.mp3"), true);
+  assert.equal(radio.getMeta().filename, "b.mp3");
+  assert.equal(radio.getMeta().cover, "cover-b");
+  assert.equal(radio.getQueueState().queue[radio.currentIndex].song, "b.mp3");
+  assert.equal(radio.jumpToSong("missing.mp3"), false);
 });

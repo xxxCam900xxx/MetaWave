@@ -7,6 +7,9 @@ Die Moderation ist auf natürliche Übergänge ohne vorgelesene Quellen ausgeleg
 die Quellenmetadaten bleiben für den Abruf erhalten. Automatisch erzeugte
 Nachrichten können Fehler enthalten und sollten vor einer öffentlichen
 Ausstrahlung redaktionell geprüft werden.
+Die KI-Stimme stellt sich in neu erzeugten Beiträgen als **Alex** vor; die
+Nachrichtensendung heisst **MetaWave Update**. Bereits vorbereitete Beiträge
+behalten ihre bisherige Ansage.
 Die API ist nicht auf dem Host veröffentlicht: Die angemeldete MetaWave-App
 erreicht sie über den authentifizierten Radio-Proxy unter `/speaker`.
 
@@ -54,23 +57,42 @@ erreicht sie über den authentifizierten Radio-Proxy unter `/speaker`.
 5. Für den geplanten Test Speaker aktivieren und eine Uhrzeit mindestens eine
    Stunde in der Zukunft eintragen. Zu dieser Uhrzeit einen angemeldeten,
    bereits gestarteten Player geöffnet lassen. Eine Stunde vorher muss die
-   Vorbereitung im Log starten; zur Sendezeit unterbricht der Beitrag die Musik
-   und setzt sie anschliessend an derselben Stelle fort.
+   Vorbereitung im Log starten. Ab der Sendezeit läuft zunächst der aktuelle
+   Song zu Ende. Sobald die individuellen Songansagen bereit sind, beginnt der
+   Beitrag an einem Liedende und kündigt danach den nächsten Song an.
 
 Die Sendezeiten sind täglich und verwenden `Europe/Zurich`. Eine bei der
 Sommerzeitumstellung nicht existierende Uhrzeit entfällt; bei einer doppelt
 vorkommenden Uhrzeit wird die erste verwendet. Vorbereitungen beginnen eine
 reale Stunde vor dem Zielzeitpunkt. Ein pausiertes Radio lässt den Beitrag aus.
 In der Player-Queue zeigt ein separater Hinweis die nächste geplante
-Sendezeit in Schweizer Ortszeit. Er verändert die Musikreihenfolge nicht und
-kennzeichnet einen bekannten Ausfall; bei pausiertem Radio kann die Sendung
-ausfallen.
-Ist ein Beitrag nicht rechtzeitig fertig, fällt er aus statt verspätet zu
-starten. Werden Konfiguration oder Zeiten nach Beginn des Vorlaufs geändert,
+Sendezeit in Schweizer Ortszeit und kennzeichnet einen bekannten Ausfall;
+bei pausiertem Radio kann die Sendung
+ausfallen. Während die Sendung auf ein Liedende und ihre Songansagen wartet,
+zeigt die Queue dies an.
+Auf dem Desktop lassen sich links die nächste und die zuletzt ausgestrahlte
+Sendung aufklappen. Ein Lesefenster zeigt das vollständige KI-Skript; bei neu
+vorbereiteten Sendungen stehen zusätzlich die vom RSS-Feed gelieferten Titel,
+Zusammenfassungen und, soweit vorhanden, Links zur Quelle zur Verfügung.
+Die RSS-Auswahl sind die Eingaben für das Modell: Nicht jede Meldung muss im
+Skript vorkommen, und die Texte dürfen nicht als automatisch verifizierte
+Fakten oder als vollständige Originalartikel verstanden werden. Bei älteren
+Sendungen wurden keine Quellen gespeichert. Auch die automatisch generierten
+Inhalte müssen redaktionell geprüft werden.
+Ist der vorbereitete Nachrichtenbeitrag zur Sendezeit nicht fertig, fällt er
+aus. Die zusätzlichen Songansagen werden erst ab der Sendezeit mit Qwen
+erzeugt, sobald die konkreten Titel bekannt sind. Falls die Titel währenddessen
+wechseln oder die Ansagen beim Liedende noch nicht bereit sind, läuft der
+nächste Song und die Sendung wartet auf ein passendes späteres Liedende.
+Nach 30 Minuten Wartezeit wird sie als fehlgeschlagen markiert. Werden
+Konfiguration oder Zeiten nach Beginn des Vorlaufs geändert,
 muss für die neue Konfiguration wieder ein vollständiger Vorlauf möglich sein.
 Nach Neustarts werden unterbrochene Vorbereitungen als fehlgeschlagen markiert.
 Beiträge erhalten am Anfang und Ende eine kurze, lokal erzeugte
-Nachrichtenkennung. Angestrebt werden ein bis drei Minuten inklusive Kennung.
+Nachrichtenkennung. Angestrebt werden ein bis drei Minuten für den
+Nachrichtenbeitrag inklusive Kennung; die Songansagen kommen zusätzlich hinzu.
+Neu erzeugte Sprachaufnahmen werden für eine höhere Lautstärke normalisiert;
+bereits vorhandene Beiträge bleiben unverändert.
 Liegt das fertige Audio ausserhalb von 60 bis 180 Sekunden, wird der Job mit
 einer Fehlermeldung verworfen und nicht ausgespielt. Längere Beiträge brauchen
 besonders auf der CPU deutlich mehr Vorbereitungszeit.
@@ -85,8 +107,15 @@ MetaWave verwendet **keinen zentralen Audiostream**. Aktive Player werden über
 den Radio-Server synchronisiert und blenden Musik und Beitrag beim Wechsel kurz
 aus bzw. ein. Netzwerkverzögerungen, Browser-Autoplay und Hintergrundbetrieb
 verhindern eine garantiert samplegenaue oder überall gleichzeitige Ausspielung.
+Die Ansagen nennen den gerade beendeten und den anschliessend vorgesehenen
+Song. Der angekündigte nächste Song wird nach dem Beitrag auch dann gestartet,
+wenn die Queue währenddessen umsortiert wurde. Ein manueller Songwechsel
+während des Beitrags bricht diesen ab.
 Der Dienst muss zur Vorbereitungs- und Sendezeit laufen; verpasste Zeiten
 werden nicht nachgeholt.
+
+Auch die Radio-Arbeitszeiten in den Einstellungen gelten in `Europe/Zurich`
+und berücksichtigen die Schweizer Sommer- und Winterzeit.
 
 ## CPU und NVIDIA-GPU
 

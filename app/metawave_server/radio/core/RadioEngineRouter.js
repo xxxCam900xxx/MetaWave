@@ -99,6 +99,15 @@ router.get("/control/skip", (req, res) => { radio.skip(); res.json({ status: 200
 router.get("/control/previous", (req, res) => { radio.previous(); res.json({ status: 200, message: "Previous song will be played" }); });
 router.get("/control/shuffle", (req, res) => { radio.shuffleRemaining(); res.json({ status: 200, message: "Queue shuffled" }); });
 router.get("/control/jumpto/:index", (req, res) => { radio.jumpto(req.params.index); res.json({ status: 200, message: `Jumped to Song Index ${req.params.index}` }); });
+router.post("/control/jumpto", (req, res) => {
+  if (typeof req.body?.filename !== "string" || !req.body.filename) {
+    return res.status(400).json({ status: 400, message: "Invalid song filename" });
+  }
+  if (!radio.jumpToSong(req.body.filename)) {
+    return res.status(404).json({ status: 404, message: "Song no longer in queue" });
+  }
+  return res.json({ status: 200, message: "Jumped to song" });
+});
 router.get("/control/move/:from/:to", (req, res) => { radio.moveInQueue(req.params.from, req.params.to); res.json({ status: 200, message: `Moved queue item from ${req.params.from} to ${req.params.to}` }); });
 
 // Volume control endpoints

@@ -15,7 +15,7 @@ class LLMClientTests(unittest.TestCase):
                 [NewsItem("Titel", "Inhalt", "Quelle")],
                 datetime(2026, 11, 19, 8, 0, tzinfo=timezone.utc),
             )
-        self.assertEqual(result, f"Guten Morgen, schön, dass ihr dabei seid. Es ist acht Uhr.\n\nDie Nachricht.\n\n{OUTRO}")
+        self.assertEqual(result, f"Guten Morgen und willkommen bei MetaWave Radio, eurem Sender für die besten Hits. Ich bin Alex und hier ist euer MetaWave Update um acht Uhr.\n\nDie Nachricht.\n\n{OUTRO}")
         payload = json.loads(request.call_args.args[0].data)
         self.assertEqual(json.loads(payload["messages"][1]["content"]), [{"titel": "Titel", "zusammenfassung": "Inhalt"}])
         self.assertIn("Nenne keine Nachrichtenquellen", payload["messages"][0]["content"])
@@ -32,7 +32,8 @@ class LLMClientTests(unittest.TestCase):
                         [NewsItem("Titel", "", "Quelle")],
                         datetime(2026, 11, 19, hour, minute, tzinfo=timezone.utc),
                     )
-                self.assertIn(f"{greeting}, schön, dass ihr dabei seid. Es ist {spoken_time}.", result)
+                self.assertIn(f"{greeting} und willkommen bei MetaWave Radio", result)
+                self.assertIn(f"Ich bin Alex und hier ist euer MetaWave Update um {spoken_time}.", result)
 
     def test_requires_news_and_timezone(self):
         with self.assertRaises(ValueError):

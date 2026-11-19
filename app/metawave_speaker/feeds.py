@@ -44,7 +44,13 @@ def _news_item(entry, feed_source: str) -> NewsItem:
         trailing_font = re.search(r"<font\b[^>]*>[^<]*</font>\s*$", raw_summary, re.IGNORECASE)
         if trailing_font and _plain(trailing_font.group()) == publisher:
             summary = re.sub(r"\s+" + re.escape(publisher) + r"\s*$", "", summary, flags=re.IGNORECASE)
-    return NewsItem(title, summary, source_name)
+    link = entry.get("link", "")
+    try:
+        parsed_link = urlsplit(link) if isinstance(link, str) and not re.search(r"[\x00-\x20\x7f]", link) else None
+        url = link if parsed_link and parsed_link.scheme in ("http", "https") and parsed_link.hostname and not parsed_link.username and not parsed_link.password else None
+    except ValueError:
+        url = None
+    return NewsItem(title, summary, source_name, url)
 
 
 def fetch_feed(url: str) -> list[NewsItem]:
