@@ -1,0 +1,40 @@
+services:
+  ollama:
+    image: ollama/ollama:0.11.11
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+  ollama-init:
+    image: ollama/ollama:0.11.11
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'until ollama list >/dev/null 2>&1; do sleep 2; done; if ollama show "${OLLAMA_MODEL:-qwen2.5:3b}" >/dev/null 2>&1; then echo "Ollama model already available"; else ollama pull "${OLLAMA_MODEL:-qwen2.5:3b}"; fi'
+    depends_on:
+      - ollama
+    restart: "no"
+  metawave-speaker:
+    container_name: metawave-speaker
+    build:
+      context: ../..
+      dockerfile: docker/metawave_speaker/Dockerfile
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      SPEAKER_TTS_DEVICE: cpu
+      SPEAKER_TTS_MODEL: ${SPEAKER_TTS_MODEL:-Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice}
+      SPEAKER_TTS_INSTRUCT: '${SPEAKER_TTS_INSTRUCT:-Sprich auf Deutsch wie ein freundlicher, natürlicher Radiomoderator: lebendig, klar und mit entspannten Sprechpausen.}'
+      HF_HOME: /models
+    volumes:
+      - speaker_data:/data
+      - speaker_models:/models
+    depends_on:
+      ollama-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  speaker_data:
+  speaker_models:
+  ollama_models:

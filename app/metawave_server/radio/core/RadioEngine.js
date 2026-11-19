@@ -39,6 +39,7 @@ export class RadioEngine extends EventEmitter {
     // Timer-based track advancement
     this._trackStartedAt = Date.now();
     this._trackTimer = null;
+    this.speakerEpisode = null;
 
     // Periodic metadata hot-reload: check every 30 s whether metadata.json changed
     // so that covers, durations and LUFS values become available without restart.
@@ -230,6 +231,7 @@ export class RadioEngine extends EventEmitter {
       clearTimeout(this._trackTimer);
       this._trackTimer = null;
     }
+    this.speakerEpisode = null;
 
     if (!this.queue.length) return;
 
@@ -267,6 +269,11 @@ export class RadioEngine extends EventEmitter {
   }
 
   _getElapsedMilliseconds() {
+    if (this.speakerEpisode) {
+      return this.isPaused
+        ? this._pausedElapsed * 1000
+        : Date.now() - this.speakerEpisode.startedAt;
+    }
     return this.isPaused
       ? this._pausedElapsed * 1000
       : Date.now() - this._trackStartedAt;
@@ -274,6 +281,10 @@ export class RadioEngine extends EventEmitter {
 
   _autoAdvance() {
     if (!this.queue.length || this.isPaused) return;
+    if (this.speakerEpisode) {
+      this._finishSpeaker();
+      return;
+    }
     const next = this.currentIndex + 1;
     if (next >= this.queue.length) {
       console.log("[RadioEngine] Ende der Queue – shuffle und von vorn");
@@ -319,13 +330,45 @@ export class RadioEngine extends EventEmitter {
   /** Returns the absolute path to an MP3 file – sanitised against path traversal */
   getSongFilePath(filename) {
     const safe = path.basename(filename);
+    if (/^speaker-[a-f0-9]{32}\.wav$/.test(safe)) return path.join("/speaker/audio", safe);
     return path.join(SONGS_DIR, safe);
+  }
+
+  startSpeaker({ filename, duration }) {
+    if (this.isPaused || this.speakerEpisode || !this.queue.length ||
+        !/^speaker-[a-f0-9]{32}\.wav$/.test(filename) ||
+        !Number.isFinite(duration) || duration <= 0 ||
+        !fs.existsSync(this.getSongFilePath(filename))) return false;
+    const musicElapsed = this._getElapsedMilliseconds();
+    if (this._trackTimer) clearTimeout(this._trackTimer);
+    this._trackTimer = null;
+    this.speakerEpisode = { filename, duration, musicElapsed, startedAt: Date.now() };
+    this._pausedElapsed = 0;
+    this._scheduleTrackAdvance(duration);
+    this._broadcastTrackChanged();
+    console.log(`[RadioEngine] Speaker started: ${filename}`);
+    return true;
+  }
+
+  _finishSpeaker() {
+    if (!this.speakerEpisode) return;
+    if (this._trackTimer) clearTimeout(this._trackTimer);
+    this._trackTimer = null;
+    const musicElapsed = this.speakerEpisode.musicElapsed;
+    this.speakerEpisode = null;
+    this._pausedElapsed = musicElapsed / 1000;
+    this._trackStartedAt = Date.now() - musicElapsed;
+    this._scheduleTrackAdvance(this.queue[this.currentIndex]?.duration || 0);
+    this._broadcastTrackChanged();
+    console.log("[RadioEngine] Speaker finished; music resumed");
   }
 
   // ─── Meta / Queue state ────────────────────────────────────────────────────
 
   getMeta() {
-    const song = this.queue[this.currentIndex];
+    const song = this.speakerEpisode
+      ? { filename: this.speakerEpisode.filename, title: "MetaWave Nachrichten", author: "Speaker", duration: this.speakerEpisode.duration }
+      : this.queue[this.currentIndex];
     const elapsed   = Math.floor(this._getElapsedMilliseconds() / 1000);
     const duration  = song?.duration || 0;
     const lufsGainDb = song ? this._calcLufsGain(song) : 0;
@@ -342,6 +385,7 @@ export class RadioEngine extends EventEmitter {
       lufsGainDb,
       monotoneEnabled: this.monotoneEnabled,
       isPaused:        this.isPaused,
+      isSpeaker:       Boolean(this.speakerEpisode),
     };
   }
 
@@ -397,9 +441,10 @@ export class RadioEngine extends EventEmitter {
   resume(reason = "Manuell fortgesetzt") {
     if (!this.isPaused) return;
     const song = this.queue[this.currentIndex];
-    this._trackStartedAt = Date.now() - this._pausedElapsed * 1000;
+    if (this.speakerEpisode) this.speakerEpisode.startedAt = Date.now() - this._pausedElapsed * 1000;
+    else this._trackStartedAt = Date.now() - this._pausedElapsed * 1000;
     this.isPaused = false;
-    this._scheduleTrackAdvance(song?.duration || 0);
+    this._scheduleTrackAdvance(this.speakerEpisode?.duration || song?.duration || 0);
     console.log(`[RadioEngine] Fortgesetzt bei ${this._pausedElapsed}s: ${reason}`);
     this._broadcastPlaybackState();
     this._broadcastTrackChanged();

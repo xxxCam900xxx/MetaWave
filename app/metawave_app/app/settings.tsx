@@ -7,6 +7,7 @@ import { useRouter, Link } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { API_BASE } from "../src/config";
 import { settingsStyles as styles } from "../src/styles/settingsStyles";
+import SpeakerSettings from "../src/components/SpeakerSettings";
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -360,6 +361,7 @@ export default function SettingsScreen() {
               <Ionicons name="chevron-forward" size={20} color="#737373" />
             </TouchableOpacity>
           </View>
+          {tokenRef.current && <SpeakerSettings token={tokenRef.current} isDesktop={isDesktop} />}
         </View>
 
         {/* Mobile: Back button removed from ScrollView to keep it fixed at bottom */}

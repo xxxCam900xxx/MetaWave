@@ -36,14 +36,14 @@ router.get("/file/:filename", (req, res) => {
       "Content-Range":  `bytes ${start}-${end}/${stat.size}`,
       "Accept-Ranges":  "bytes",
       "Content-Length": chunkSize,
-      "Content-Type":   "audio/mpeg",
+      "Content-Type":   filePath.endsWith(".wav") ? "audio/wav" : "audio/mpeg",
       "Cache-Control":  "no-cache",
     });
     fs.createReadStream(filePath, { start, end }).pipe(res);
   } else {
     res.writeHead(200, {
       "Content-Length": stat.size,
-      "Content-Type":   "audio/mpeg",
+      "Content-Type":   filePath.endsWith(".wav") ? "audio/wav" : "audio/mpeg",
       "Accept-Ranges":  "bytes",
       "Cache-Control":  "no-cache",
     });

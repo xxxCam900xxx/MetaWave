@@ -1,0 +1,22 @@
+services:
+  metawave-speaker:
+    build:
+      args:
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cu126
+    environment:
+      SPEAKER_TTS_DEVICE: cuda:0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

@@ -10,6 +10,8 @@ import StreamRouter from "./core/RadioEngineRouter.js";
 import AuthRouter from "./middleware/AuthRouter.js";
 import NotificationRouter from "./notification/NotificationRouter.js";
 import PlaylistRouter from "./playlist/PlaylistRouter.js";
+import { speakerRouter, startSpeakerBridge } from "./core/SpeakerBridge.js";
+import { radio } from "./core/RadioEngine.js";
 
 // Import Websockets
 import { setupWebSocket } from "./websocket/WebsocketLogic.js";
@@ -78,6 +80,7 @@ app.use("/auth", AuthRouter);
 app.use("/stream", StreamRouter);
 app.use("/notification", NotificationRouter);
 app.use("/playlist", PlaylistRouter);
+app.use("/speaker", speakerRouter);
 
 // Setup WebSocket
 setupWebSocket(server);
@@ -85,6 +88,7 @@ setupWebSocket(server);
 // Launching Server
 const PORT = 8000;
 server.listen(PORT, async () => {
+   startSpeakerBridge(radio);
    console.log(`MetaWave Live Radio läuft auf Port ${PORT}`);
    console.log(`Swagger UI: http://localhost:${PORT}/swagger`);
 

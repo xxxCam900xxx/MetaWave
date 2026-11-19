@@ -38,6 +38,10 @@ Das Projekt verwendet `docker/compose.enviroment.yaml`, welches folgende Compose
 - `metawave_database/compose.database.yaml`
 - `metawave_server/compose.server.yaml`
 - `metawave_app/compose.app.yaml`
+- `metawave_speaker/compose.speaker.yaml`
+
+Der Speaker-Dienst und sein End-to-End-Test sind in der
+[Speaker-Anleitung](../app/metawave_speaker/README.md) beschrieben.
 
 ## Step 1 | Enviroment Files erstellen
 

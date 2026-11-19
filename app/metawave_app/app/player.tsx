@@ -10,6 +10,7 @@ import { faArrowsRotate, faGear, faRightFromBracket, faBackwardStep, faForwardSt
 import { API_BASE, WS_BASE } from "../src/config";
 import { colors } from "../src/theme";
 import { playerStyles as styles } from "../src/styles/playerStyles";
+import { parseSpeakerSchedule, speakerQueueNotice, SpeakerQueueNotice, SpeakerSchedule } from "../src/speakerQueue";
 
 interface StreamMeta {
   filename?: string;
@@ -23,6 +24,7 @@ interface StreamMeta {
   lufsGainDb?: number;
   monotoneEnabled?: boolean;
   isPaused?: boolean;
+  isSpeaker?: boolean;
 }
 
 interface QueueItem {
@@ -50,6 +52,21 @@ const formatEndClockTime = (remainingSeconds: number): string => {
   const hours = end.getHours().toString().padStart(2, "0");
   const minutes = end.getMinutes().toString().padStart(2, "0");
   return `${hours}:${minutes}`;
+};
+
+const SpeakerQueueRow: React.FC<{ notice: SpeakerQueueNotice | null }> = ({ notice }) => {
+  if (!notice) return null;
+  return (
+    <View style={[styles.queueItem, { marginBottom: 8, borderRadius: 8 }]}>
+      <View style={[styles.queueThumbnail, styles.queueThumbnailPlaceholder]}>
+        <Ionicons name="radio-outline" size={24} color={notice.warning ? "#ff9b9b" : colors.primary} />
+      </View>
+      <View style={styles.queueTexts}>
+        <Text style={[styles.queueTitle, notice.warning && { color: "#ff9b9b" }]}>{notice.title}</Text>
+        <Text style={styles.queueAuthor}>{notice.detail}</Text>
+      </View>
+    </View>
+  );
 };
 
 // ─── Queue Item Component ───────────────────────────────────────────────────
@@ -136,6 +153,8 @@ export default function PlayerScreen() {
   const [volume, setVolume] = useState<number>(100);
   const [error, setError] = useState<string | null>(null);
   const [localElapsedTime, setLocalElapsedTime] = useState<number>(0);
+  const [speakerSchedule, setSpeakerSchedule] = useState<SpeakerSchedule | null>(null);
+  const [speakerUnavailable, setSpeakerUnavailable] = useState(false);
   
   const volumeRef = useRef<number>(100);
   const isPlayingRef = useRef<boolean>(false);
@@ -183,6 +202,7 @@ export default function PlayerScreen() {
   const serverTimestampRef = useRef<number>(Date.now());
   const pendingControlRef = useRef<boolean>(false);
   const lastLoadedTrackKeyRef = useRef<string>("");
+  const lastLoadedIsSpeakerRef = useRef(false);
   const hasStartedPlaybackRef = useRef<boolean>(false);
 
   // Drag State
@@ -361,6 +381,14 @@ export default function PlayerScreen() {
             setIsPlayingState(true);
           }
         } else {
+          const fadeTransition = Boolean(soundRef.current && (lastLoadedIsSpeakerRef.current || currentMetaToLoad.isSpeaker));
+          if (fadeTransition && soundRef.current) {
+            const initialVolume = getEffectiveVolume();
+            for (let step = 3; step >= 0; step--) {
+              await soundRef.current.setVolumeAsync(initialVolume * step / 4);
+              await new Promise(resolve => setTimeout(resolve, 25));
+            }
+          }
           // Alten Sound sicher beenden, bevor der neue geladen wird
           if (soundRef.current) {
             await soundRef.current.unloadAsync().catch(() => undefined);
@@ -374,7 +402,7 @@ export default function PlayerScreen() {
               shouldPlay: !currentMetaToLoad.isPaused,
               positionMillis: (currentMetaToLoad.elapsed || 0) * 1000,
               progressUpdateIntervalMillis: 500,
-              volume: getEffectiveVolume(currentMetaToLoad),
+              volume: fadeTransition && !currentMetaToLoad.isPaused ? 0 : getEffectiveVolume(currentMetaToLoad),
               rate: 1.0, // Catch-Up zurücksetzen
               shouldCorrectPitch: true
             }
@@ -382,7 +410,14 @@ export default function PlayerScreen() {
 
           soundRef.current = sound;
           lastLoadedTrackKeyRef.current = trackKey;
+          lastLoadedIsSpeakerRef.current = Boolean(currentMetaToLoad.isSpeaker);
           sound.setOnPlaybackStatusUpdate(handleStatusUpdate);
+          if (fadeTransition && !currentMetaToLoad.isPaused) {
+            for (let step = 1; step <= 4; step++) {
+              await sound.setVolumeAsync(getEffectiveVolume(currentMetaToLoad) * step / 4);
+              await new Promise(resolve => setTimeout(resolve, 25));
+            }
+          }
           
           setIsPlayingState(!currentMetaToLoad.isPaused);
           setError(null);
@@ -414,6 +449,7 @@ export default function PlayerScreen() {
       filename: dm.filename, title: dm.title, author: dm.author, duration: newDuration,
       cover: dm.cover, index: dm.index, total: dm.total, elapsed: newElapsed,
       lufsGainDb: dm.lufsGainDb ?? 0, monotoneEnabled: dm.monotoneEnabled ?? false, isPaused: Boolean(dm.isPaused),
+      isSpeaker: Boolean(dm.isSpeaker),
     };
     
     const shouldLoadAudio = Boolean(soundRef.current || hasStartedPlaybackRef.current);
@@ -464,12 +500,47 @@ export default function PlayerScreen() {
   // ────────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
+    let active = true;
+    let speakerTimer: ReturnType<typeof setInterval> | null = null;
+    let speakerRequest: AbortController | null = null;
+    let speakerErrorLogged = false;
+    const fetchSpeakerStatus = async () => {
+      if (!tokenRef.current || speakerRequest) return;
+      const controller = new AbortController();
+      speakerRequest = controller;
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await fetch(`${API_BASE}/speaker/status`, {
+          headers: { Authorization: `Bearer ${tokenRef.current}` },
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Speaker-Status HTTP ${response.status}`);
+        const schedule = parseSpeakerSchedule(await response.json());
+        if (active) {
+          setSpeakerSchedule(schedule);
+          setSpeakerUnavailable(false);
+          speakerErrorLogged = false;
+        }
+      } catch (error) {
+        if (active) {
+          if (!speakerErrorLogged) console.warn("Speaker-Status konnte nicht geladen werden:", error);
+          speakerErrorLogged = true;
+          setSpeakerUnavailable(true);
+        }
+      } finally {
+        clearTimeout(timeout);
+        speakerRequest = null;
+      }
+    };
     const init = async () => {
       try {
         const stored = await AsyncStorage.getItem("authToken");
+        if (!active) return;
         if (!stored) { router.replace("/"); return; }
         tokenRef.current = stored;
 
+        void fetchSpeakerStatus();
+        speakerTimer = setInterval(fetchSpeakerStatus, 15000);
         await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, staysActiveInBackground: true });
 
         await fetchMetadata();
@@ -508,6 +579,9 @@ export default function PlayerScreen() {
     init();
 
     return () => {
+      active = false;
+      if (speakerTimer) clearInterval(speakerTimer);
+      if (speakerRequest) speakerRequest.abort();
       if (localTimerRef.current) clearInterval(localTimerRef.current);
       if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
       if (authIntervalRef.current) clearInterval(authIntervalRef.current);
@@ -520,6 +594,7 @@ export default function PlayerScreen() {
       
       hasStartedPlaybackRef.current = false;
       lastLoadedTrackKeyRef.current = "";
+      lastLoadedIsSpeakerRef.current = false;
     };
   }, []);
 
@@ -725,6 +800,7 @@ export default function PlayerScreen() {
   const elapsedSeconds = localElapsedTime;
   const durationSeconds = meta?.duration ?? currentSongDurationRef.current ?? 0;
   const remainingSeconds = Math.max(0, durationSeconds - elapsedSeconds);
+  const speakerNotice = speakerQueueNotice(speakerSchedule, speakerUnavailable, Boolean(meta?.isSpeaker), Boolean(meta?.isPaused));
 
   if (loading) {
     return (
@@ -820,6 +896,7 @@ export default function PlayerScreen() {
               <View style={styles.sheetHandle} />
             </View>
             <Text style={styles.queueHeader} selectable={false}>Queue</Text>
+            <SpeakerQueueRow notice={speakerNotice} />
             <ScrollView
               ref={queueScrollRef}
               style={{ flex: 1 }}
@@ -911,6 +988,7 @@ export default function PlayerScreen() {
           <View style={[styles.queueContainer, isDesktop && styles.queueContainerDesktop]}>
             {isDesktop && <View style={styles.queueHandleDesktop} />}
             <Text style={styles.queueHeader} selectable={false}>Queue</Text>
+            <SpeakerQueueRow notice={speakerNotice} />
             <ScrollView
               ref={queueScrollRef}
               style={[styles.queueListContent, { flex: 1 }]}
