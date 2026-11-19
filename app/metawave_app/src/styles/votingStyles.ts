@@ -1,0 +1,33 @@
+import { StyleSheet } from "react-native";
+import { colors } from "../theme";
+
+export const votingStyles = StyleSheet.create({
+  voteRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 16 },
+  voteButton: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 12,
+    borderRadius: 9, backgroundColor: colors.backgroundCard, borderWidth: 1, borderColor: colors.border },
+  voteActive: { backgroundColor: "#3C315B", borderColor: colors.primaryLight },
+  voteText: { color: colors.textPrimary, fontSize: 13, fontWeight: "600" },
+  voteHint: { color: "#C4BECD", fontSize: 11, marginTop: 7, textAlign: "center" },
+  page: { flex: 1, backgroundColor: colors.background },
+  pageHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: colors.backgroundDark },
+  brand: { color: colors.textPrimary, fontSize: 16, fontWeight: "600" },
+  back: { flexDirection: "row", alignItems: "center", gap: 6, padding: 4 },
+  backText: { color: colors.textSecondary, fontSize: 14, fontWeight: "600" },
+  pageContent: { width: "100%", maxWidth: 900, alignSelf: "center", paddingHorizontal: 20, paddingVertical: 28, paddingBottom: 60 },
+  title: { color: colors.textPrimary, fontSize: 22, fontWeight: "700" },
+  subtitle: { color: "#C4BECD", fontSize: 12, marginTop: 6, lineHeight: 18 },
+  tabs: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 16, marginBottom: 10 },
+  tab: { backgroundColor: colors.backgroundCard, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 10 },
+  tabActive: { backgroundColor: colors.primary },
+  tabText: { color: colors.textPrimary, fontSize: 12, fontWeight: "600" },
+  list: { flexGrow: 0, marginTop: 4 },
+  row: { flexDirection: "row", alignItems: "center", backgroundColor: colors.backgroundCard,
+    borderRadius: 10, padding: 12, marginBottom: 8 },
+  rank: { color: "#B7A2EF", width: 30, fontSize: 14, fontWeight: "700" },
+  text: { flex: 1, marginRight: 8 },
+  songTitle: { color: colors.textPrimary, fontWeight: "600", fontSize: 14 },
+  detail: { color: "#C4BECD", fontSize: 12, marginTop: 4 },
+  error: { color: colors.error, fontSize: 12, marginTop: 8 },
+  empty: { color: "#C4BECD", marginVertical: 20, textAlign: "center" },
+});

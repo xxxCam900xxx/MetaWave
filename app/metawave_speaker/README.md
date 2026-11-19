@@ -70,6 +70,11 @@ Sendezeit in Schweizer Ortszeit und kennzeichnet einen bekannten Ausfall;
 bei pausiertem Radio kann die Sendung
 ausfallen. Während die Sendung auf ein Liedende und ihre Songansagen wartet,
 zeigt die Queue dies an.
+Während der Erstellung zeigen Player-Queue und Desktop-Nachrichtenleiste einen
+Ladeindikator; danach erscheint der Bereitschaftsstatus. Der Status beruht auf
+den gemeldeten Jobs und ist keine Fortschrittsanzeige für einzelne Arbeitsschritte.
+Eine manuell gestartete Vorschau wird als Test gekennzeichnet. Kürzliche
+Ausfälle werden ebenfalls angezeigt; die Aktualisierung erfolgt etwa alle 15 Sekunden.
 Auf dem Desktop lassen sich links die nächste und die zuletzt ausgestrahlte
 Sendung aufklappen. Ein Lesefenster zeigt das vollständige KI-Skript; bei neu
 vorbereiteten Sendungen stehen zusätzlich die vom RSS-Feed gelieferten Titel,

@@ -12,6 +12,8 @@ import NotificationRouter from "./notification/NotificationRouter.js";
 import PlaylistRouter from "./playlist/PlaylistRouter.js";
 import { speakerRouter, startSpeakerBridge } from "./core/SpeakerBridge.js";
 import { radio } from "./core/RadioEngine.js";
+import { votingStore } from "./core/VotingStore.js";
+import { createVotingRouter } from "./core/VotingRouter.js";
 
 // Import Websockets
 import { setupWebSocket } from "./websocket/WebsocketLogic.js";
@@ -81,6 +83,18 @@ app.use("/stream", StreamRouter);
 app.use("/notification", NotificationRouter);
 app.use("/playlist", PlaylistRouter);
 app.use("/speaker", speakerRouter);
+app.use("/voting", createVotingRouter(radio, votingStore));
+
+const recordSongStart = (filename, playId) => {
+   try {
+      votingStore.recordPlay(filename, playId);
+   } catch (error) {
+      votingStore.playCountError = true;
+      console.error("[Voting] Abspielstart konnte nicht gespeichert werden:", error);
+   }
+};
+radio.on("songStarted", recordSongStart);
+if (!radio.isPaused && radio.queue[radio.currentIndex]) recordSongStart(radio.queue[radio.currentIndex].filename, radio.getMeta().playId);
 
 // Setup WebSocket
 setupWebSocket(server);

@@ -13,6 +13,7 @@ MetaWave löst das Problem des gemeinsamen Musik-Streamings ohne Werbung und mit
 - **Werbefreies Streaming** von YouTube-Playlists
 - **Synchrones Hören** mit mehreren Teilnehmern
 - **Gemeinsame Kontrolle** (Skip, Shuffle, Queue Management)
+- **Voting und Musikstatistiken** mit Ranglisten und Künstleranteilen
 - **Sichere Authentifizierung** mit monatlichen Wave-Tokens
 - **URL-basierter Login** für direkten Zugriff ohne manuelle Token-Eingabe
 - **Cross-Platform Client** (Web, iOS, Android via Expo)
@@ -172,6 +173,28 @@ Erstellen Sie `.env` Dateien für:
 Beispiel-Konfigurationen finden Sie in den jeweiligen Docker-Ordnern.
 
 ## Client Features
+
+### Voting und Statistiken
+
+Im Player kann jeder Browser pro Wiedergabe des aktuellen Titels eine positive
+oder negative Stimme abgeben, ändern oder durch erneutes Anklicken zurücknehmen.
+Bei einem erneuten Liedstart kann neu abgestimmt werden; frühere Stimmen bleiben
+in den Gesamträngen erhalten. Pause und Fortsetzen zählen nicht als neuer Start.
+Bereits vor dieser Umstellung abgegebene Stimmen bleiben als historische Stimmen
+erhalten. Die zufällige
+Browser-ID liegt im lokalen Speicher: Nach dem Löschen der Browserdaten oder
+auf einem anderen Gerät gilt eine neue ID. Das ist keine manipulationssichere
+Identitätsprüfung.
+
+Das Statistik-Symbol im Player öffnet eine eigene Seite mit Ranglisten nach
+Upvotes, Downvotes und Abspielstarts sowie Künstleranteilen an den aktiven Titeln. Gezählt
+werden serverseitige Liedstarts ab Einführung der Funktion, nicht Zuhörer oder
+vollständig gehörte Titel. Künstler werden nach dem hinterlegten Künstlerfeld
+gruppiert; gemeinsam angegebene Künstler bleiben eine Gruppe.
+
+Stimmen und Zähler liegen im
+persistenten Songs-Volume unter `.metawave-voting/statistics.json`; wer Zugriff
+auf diesen Speicher hat, sollte ihn wie andere Nutzungsdaten behandeln.
 
 ### Web-App
 - Responsive Design für Desktop und Mobile

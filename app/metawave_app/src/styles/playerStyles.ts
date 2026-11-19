@@ -143,6 +143,25 @@ export const playerStyles = StyleSheet.create<any>({
   newsPreviewContent: {
     flex: 1,
   },
+  speakerStatusCard: {
+    backgroundColor: colors.backgroundCard,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+  },
+  speakerMobileStatus: {
+    position: "absolute",
+    top: 8,
+    width: 184,
+    zIndex: 1,
+    backgroundColor: "rgba(28, 28, 28, 0.94)",
+    borderRadius: 10,
+    padding: 8,
+  },
+  speakerStatusHeader: { flexDirection: "row", alignItems: "center", gap: 7 },
+  speakerStatusTitle: { flex: 1, color: "#E5E0EC", fontSize: 12, fontWeight: "700" },
+  speakerStatusDetail: { color: "#C4BECD", fontSize: 11, lineHeight: 16, marginTop: 6 },
+  speakerStatusWarning: { color: "#FF9B9B", fontSize: 11, lineHeight: 16, marginTop: 5 },
   newsPreviewCard: {
     backgroundColor: colors.backgroundCard,
     borderRadius: 12,

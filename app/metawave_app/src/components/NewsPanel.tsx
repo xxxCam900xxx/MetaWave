@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { Linking, Modal, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Linking, Modal, ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { NewsSourceItem, safeNewsUrl, SpeakerQueueNotice, SpeakerSchedule } from "../speakerQueue";
 import { playerStyles as styles } from "../styles/playerStyles";
 
@@ -58,8 +58,8 @@ function BroadcastSection({ title, time, badge, ready, script, items, empty, onR
   );
 }
 
-export default function NewsPanel({ schedule, unavailable, notice, narrow }: {
-  schedule: SpeakerSchedule | null; unavailable: boolean; notice: SpeakerQueueNotice | null; narrow: boolean;
+export default function NewsPanel({ schedule, unavailable, notice, recentWarning, narrow }: {
+  schedule: SpeakerSchedule | null; unavailable: boolean; notice: SpeakerQueueNotice | null; recentWarning: string | null; narrow: boolean;
 }) {
   const [reading, setReading] = useState<Reading | null>(null);
   const [linkError, setLinkError] = useState("");
@@ -69,6 +69,7 @@ export default function NewsPanel({ schedule, unavailable, notice, narrow }: {
     ? formatBroadcastTime(schedule.next_broadcast) : null;
   const badge = unavailable ? "Nicht erreichbar" : !schedule ? "Wird geladen" : !schedule.enabled ? "Deaktiviert" :
     schedule.next_broadcast_state === "claimed" ? "Wartet auf Liedende" :
+    schedule.next_broadcast_state === "preparing" ? "Wird erstellt" :
     ready ? "Bereit" : notice?.warning ? "Sendung nicht verfügbar" : "Noch nicht bereit";
   const nextEmpty = unavailable ? "Der Speaker-Status ist derzeit nicht erreichbar." :
     !schedule ? "Der Speaker-Status wird geladen." : !schedule.enabled ? "Aktiviere den Speaker in den Einstellungen." :
@@ -100,6 +101,17 @@ export default function NewsPanel({ schedule, unavailable, notice, narrow }: {
           </View>
         </View>
         <ScrollView style={styles.newsPreviewContent} nestedScrollEnabled>
+          {notice && (
+            <View style={styles.speakerStatusCard} accessibilityLiveRegion="polite">
+              <View style={styles.speakerStatusHeader}>
+                {notice.busy ? <ActivityIndicator size="small" color="#B7A2EF" /> :
+                  <Ionicons name={notice.warning ? "alert-circle-outline" : "radio-outline"} size={16} color={notice.warning ? "#FF9B9B" : "#B7A2EF"} />}
+                <Text style={[styles.speakerStatusTitle, notice.warning && styles.speakerStatusWarning]}>{notice.title}</Text>
+              </View>
+              <Text style={styles.speakerStatusDetail}>{notice.detail}</Text>
+              {!!recentWarning && <Text style={styles.speakerStatusWarning}>{recentWarning}</Text>}
+            </View>
+          )}
           <BroadcastSection title="NÄCHSTE SENDUNG"
             time={nextTime && !unavailable && schedule?.enabled ? `${nextTime} Uhr · Schweizer Zeit` : "Termin noch nicht verfügbar"}
             badge={badge} ready={ready} script={ready ? schedule?.next_broadcast_script : null}

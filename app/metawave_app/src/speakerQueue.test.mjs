@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { lastNewsPreview, newsPreview, parseSpeakerSchedule, safeNewsUrl, speakerQueueNotice } from "./speakerQueue.ts";
+import { lastNewsPreview, newsPreview, parseSpeakerSchedule, recentSpeakerWarning, safeNewsUrl, speakerQueueNotice } from "./speakerQueue.ts";
 
 const target = "2026-11-19T09:00:00+00:00";
 const schedule = { enabled: true, next_broadcast: target, next_broadcast_state: null };
 
 test("shows the Swiss broadcast time and warns when radio is paused", () => {
-  const notice = speakerQueueNotice(schedule, false, false, true);
+  const notice = speakerQueueNotice(schedule, false, false, true, Date.parse(target) - 7200000);
   assert.match(notice.title, /10:00/);
   assert.match(notice.detail, /pausiert/);
   assert.equal(notice.warning, false);
@@ -37,15 +37,48 @@ test("uses the state of the next broadcast, not the last prepared broadcast", ()
   assert.match(speakerQueueNotice(failed, false, false, false).title, /fällt aus/);
   failed.next_broadcast_state = null;
   failed.last_scheduled.state = "failed";
-  assert.match(speakerQueueNotice(failed, false, false, false).detail, /Geplant/);
+  assert.match(speakerQueueNotice(failed, false, false, false, Date.parse(target) - 7200000).detail, /Geplant/);
 });
 
 test("handles disabled, unavailable, active and invalid status", () => {
-  assert.equal(speakerQueueNotice({ ...schedule, enabled: false }, false, false, false), null);
+  assert.match(speakerQueueNotice({ ...schedule, enabled: false }, false, false, false).title, /Deaktiviert/);
   assert.equal(speakerQueueNotice(null, true, false, false).warning, true);
   assert.match(speakerQueueNotice(null, true, true, false).title, /Jetzt auf Sendung/);
   assert.throws(() => parseSpeakerSchedule({ enabled: true }), /Ungültiger/);
   assert.deepEqual(parseSpeakerSchedule(schedule), schedule);
+});
+
+test("shows scheduled preparation, readiness and missing preparation without confusing a manual preview", () => {
+  const now = Date.parse(target) - 7200000;
+  const scheduled = { ...schedule, next_prepare: "2026-11-19T08:00:00+00:00" };
+  assert.match(speakerQueueNotice(scheduled, false, false, false, now).detail, /09:00/);
+  const preparing = parseSpeakerSchedule({ ...scheduled, next_broadcast_state: "preparing",
+    job: { state: "preparing", scheduled: true, target } });
+  assert.match(speakerQueueNotice(preparing, false, false, false, now).title, /Sendung wird erstellt/);
+  assert.equal(speakerQueueNotice(preparing, false, false, false, now).busy, true);
+  const ready = { ...preparing, next_broadcast_state: "ready" };
+  assert.match(speakerQueueNotice(ready, false, false, false, now).title, /bereit/);
+  assert.match(speakerQueueNotice(ready, false, false, true, now).detail, /pausiert/);
+  const preview = { ...scheduled, job: { state: "preparing", scheduled: false, target } };
+  assert.match(speakerQueueNotice(preview, false, false, false, now).title, /Vorschau/);
+  assert.match(speakerQueueNotice({ ...ready, job: preview.job }, false, false, false, now).detail, /Vorschau/);
+  const missedPreparation = speakerQueueNotice(preview, false, false, false, Date.parse(target) - 1800000);
+  assert.equal(missedPreparation.warning, true);
+  assert.match(missedPreparation.detail, /manuelle Vorschau/);
+  assert.throws(() => parseSpeakerSchedule({ ...schedule, job: { state: "preparing", target } }), /Ungültiger/);
+});
+
+test("reports transition progress and recent failures without treating old failures as current", () => {
+  const claimed = { ...schedule, next_broadcast_state: "claimed", transition_state: "preparing" };
+  assert.equal(speakerQueueNotice(claimed, false, false, false).busy, true);
+  assert.match(speakerQueueNotice(claimed, false, false, false).detail, /Songansagen werden erstellt/);
+  assert.equal(speakerQueueNotice({ ...claimed, transition_state: "ready" }, false, false, false).busy, false);
+  const now = Date.parse(target) + 60000;
+  const failed = { ...schedule, last_scheduled: { state: "failed", target } };
+  assert.match(recentSpeakerWarning(failed, now), /ausgefallen/);
+  assert.equal(recentSpeakerWarning(failed, now + 24 * 3600000), null);
+  assert.equal(recentSpeakerWarning({ ...failed, last_broadcast: { target: "2026-11-19T10:00:00Z", script: "OK" } }, now), null);
+  assert.match(recentSpeakerWarning({ ...failed, last_scheduled: { state: "uncertain", target } }, now), /nicht bestätigt/);
 });
 
 test("preserves source metadata and refuses unsafe article links", () => {

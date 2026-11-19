@@ -66,6 +66,9 @@ export default function RootLayout() {
       case "player":
         title = "MetaWave - Radio Player";
         break;
+      case "statistics":
+        title = "MetaWave - Musik-Statistiken";
+        break;
       case "settings":
         title = "MetaWave - Einstellungen";
         break;

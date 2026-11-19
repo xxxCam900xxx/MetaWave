@@ -85,6 +85,67 @@ test("changed queue invalidates old song announcements and waits for another son
   assert.deepEqual(results, [true]);
 });
 
+test("previously excluded songs are included on queue load and metadata reload", () => {
+  resetRadio();
+  const exists = fs.existsSync;
+  const readFile = fs.readFileSync;
+  const readDir = fs.readdirSync;
+  const metadataFile = path.join(songsDir, "metadata.json");
+  let hasMetadata = false;
+  radio.votingStore = { get: () => ({ excluded: true }) };
+  fs.existsSync = value => String(value) === metadataFile ? hasMetadata
+    : String(value).startsWith(songsDir) ? true : exists(value);
+  fs.readdirSync = (value, ...args) => String(value) === songsDir ? ["music.mp3", "next.mp3"] : readDir(value, ...args);
+  fs.readFileSync = (value, ...args) => String(value) === metadataFile
+    ? JSON.stringify([{ filename: "music.mp3", duration: 60 }, { filename: "next.mp3", duration: 60 }])
+    : readFile(value, ...args);
+  try {
+    radio.loadQueue();
+    assert.deepEqual(new Set(radio.queue.map(song => song.filename)), new Set(["music.mp3", "next.mp3"]));
+    hasMetadata = true;
+    radio.loadQueue();
+    assert.deepEqual(new Set(radio.queue.map(song => song.filename)), new Set(["music.mp3", "next.mp3"]));
+    radio.queue = [{ filename: "music.mp3", duration: 60 }];
+    radio.currentIndex = 0;
+    radio._reloadMetadata();
+    assert.deepEqual(radio.queue.map(song => song.filename), ["music.mp3", "next.mp3"]);
+  } finally {
+    delete radio.votingStore;
+    fs.existsSync = exists;
+    fs.readFileSync = readFile;
+    fs.readdirSync = readDir;
+  }
+});
+
+test("play starts are counted once on resume, not on pause and resume of an existing start", () => {
+  resetRadio();
+  const starts = [];
+  const listener = (filename, playId) => starts.push({ filename, playId });
+  radio.on("songStarted", listener);
+  try {
+    radio._startTrack(0);
+    const first = radio.getMeta().playId;
+    assert.ok(first);
+    radio.pause();
+    radio.resume();
+    assert.deepEqual(starts, [{ filename: "music.mp3", playId: first }]);
+    assert.equal(radio.getMeta().playId, first);
+    radio.pause();
+    radio._startTrack(1);
+    assert.equal(radio.getMeta().playId, null);
+    assert.equal(starts.length, 1);
+    radio.resume();
+    const second = radio.getMeta().playId;
+    assert.ok(second);
+    assert.notEqual(second, first);
+    assert.deepEqual(starts, [{ filename: "music.mp3", playId: first }, { filename: "next.mp3", playId: second }]);
+    radio._startTrack(0);
+    assert.notEqual(radio.getMeta().playId, first);
+  } finally {
+    radio.off("songStarted", listener);
+  }
+});
+
 test("bridge and radio prepare, wait, play and acknowledge a complete handoff", async () => {
   resetRadio();
   radio.queue[1].title = "Next song";
@@ -133,11 +194,16 @@ test("bridge and radio prepare, wait, play and acknowledge a complete handoff", 
 
 test("speaker interrupts and then resumes the same music position", () => {
   resetRadio();
+  radio._startTrack(0);
+  const playId = radio.getMeta().playId;
+  radio._trackStartedAt = Date.now() - 12_000;
   assert.equal(radio.startSpeaker({ filename, duration: 10 }), true);
   assert.equal(radio.getMeta().isSpeaker, true);
+  assert.equal(radio.getMeta().playId, null);
   assert.equal(radio.getMeta().filename, filename);
   radio._finishSpeaker();
   assert.equal(radio.getMeta().filename, "music.mp3");
+  assert.equal(radio.getMeta().playId, playId);
   assert.ok(radio.getMeta().elapsed >= 12 && radio.getMeta().elapsed <= 13);
 });
 

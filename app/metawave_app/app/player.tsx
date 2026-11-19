@@ -10,9 +10,10 @@ import { faArrowsRotate, faGear, faRightFromBracket, faBackwardStep, faForwardSt
 import { API_BASE, WS_BASE } from "../src/config";
 import { colors } from "../src/theme";
 import { playerStyles as styles } from "../src/styles/playerStyles";
-import { parseSpeakerSchedule, speakerQueueNotice, SpeakerQueueNotice, SpeakerSchedule } from "../src/speakerQueue";
+import { parseSpeakerSchedule, recentSpeakerWarning, speakerQueueNotice, SpeakerQueueNotice, SpeakerSchedule } from "../src/speakerQueue";
 import { fadeMusicForSpeaker, fadeSpeakerTransition } from "../src/speakerFade";
 import NewsPanel from "../src/components/NewsPanel";
+import { useVoting, VoteButtons } from "../src/components/Voting";
 
 interface StreamMeta {
   filename?: string;
@@ -27,6 +28,7 @@ interface StreamMeta {
   monotoneEnabled?: boolean;
   isPaused?: boolean;
   isSpeaker?: boolean;
+  playId?: string | null;
 }
 
 interface QueueItem {
@@ -56,16 +58,18 @@ const formatEndClockTime = (remainingSeconds: number): string => {
   return `${hours}:${minutes}`;
 };
 
-const SpeakerQueueRow: React.FC<{ notice: SpeakerQueueNotice | null }> = ({ notice }) => {
+const SpeakerQueueRow: React.FC<{ notice: SpeakerQueueNotice | null; recentWarning: string | null }> = ({ notice, recentWarning }) => {
   if (!notice) return null;
   return (
-    <View style={[styles.queueItem, { marginBottom: 8, borderRadius: 8 }]}>
+    <View style={[styles.queueItem, { marginBottom: 8, borderRadius: 8 }]} accessibilityLiveRegion="polite">
       <View style={[styles.queueThumbnail, styles.queueThumbnailPlaceholder]}>
-        <Ionicons name="radio-outline" size={24} color={notice.warning ? "#ff9b9b" : colors.primary} />
+        {notice.busy ? <ActivityIndicator size="small" color={colors.primaryLight} /> :
+          <Ionicons name="radio-outline" size={24} color={notice.warning ? "#ff9b9b" : colors.primary} />}
       </View>
       <View style={styles.queueTexts}>
         <Text style={[styles.queueTitle, notice.warning && { color: "#ff9b9b" }]}>{notice.title}</Text>
         <Text style={styles.queueAuthor}>{notice.detail}</Text>
+        {!!recentWarning && <Text style={styles.speakerStatusWarning}>{recentWarning}</Text>}
       </View>
     </View>
   );
@@ -191,6 +195,7 @@ export default function PlayerScreen() {
   }, [getEffectiveVolume]);
 
   const tokenRef = useRef<string | null>(null);
+  const voting = useVoting(tokenRef.current, meta?.playId);
   const wsRef = useRef<WebSocket | null>(null);
   const wsReconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -481,6 +486,7 @@ export default function PlayerScreen() {
       cover: dm.cover, index: dm.index, total: dm.total, elapsed: newElapsed,
       lufsGainDb: dm.lufsGainDb ?? 0, monotoneEnabled: dm.monotoneEnabled ?? false, isPaused: Boolean(dm.isPaused),
       isSpeaker: Boolean(dm.isSpeaker),
+      playId: typeof dm.playId === "string" ? dm.playId : null,
     };
     
     const shouldLoadAudio = Boolean(soundRef.current || hasStartedPlaybackRef.current);
@@ -883,6 +889,7 @@ export default function PlayerScreen() {
   const durationSeconds = meta?.duration ?? currentSongDurationRef.current ?? 0;
   const remainingSeconds = Math.max(0, durationSeconds - elapsedSeconds);
   const speakerNotice = speakerQueueNotice(speakerSchedule, speakerUnavailable, Boolean(meta?.isSpeaker), Boolean(meta?.isPaused));
+  const recentSpeakerIssue = speakerUnavailable ? null : recentSpeakerWarning(speakerSchedule);
 
   if (loading) {
     return (
@@ -901,6 +908,9 @@ export default function PlayerScreen() {
           <TouchableOpacity style={styles.headerIcon} onPress={() => { if (Platform.OS === "web") { window.location.reload(); } else { router.replace("/player"); } }}>
             <Ionicons name="refresh-outline" size={18} color="#737373" />
           </TouchableOpacity>
+          <TouchableOpacity style={styles.headerIcon} onPress={() => router.push("/statistics")} accessibilityRole="button" accessibilityLabel="Musik-Statistiken">
+            <Ionicons name="bar-chart-outline" size={18} color="#737373" />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.headerIcon} onPress={() => router.push("/settings" as any)}>
             <Ionicons name="settings-outline" size={18} color="#737373" />
           </TouchableOpacity>
@@ -913,6 +923,18 @@ export default function PlayerScreen() {
       {isMobile ? (
         <View style={[styles.centerContent, { paddingBottom: COLLAPSED_HEIGHT + 16 }]}>
           <View style={[styles.playerColumn]}>
+          {speakerNotice && (
+            <View style={styles.speakerMobileStatus} accessibilityLiveRegion="polite">
+              <View style={styles.speakerStatusHeader}>
+                {speakerNotice.busy ? <ActivityIndicator size="small" color="#B7A2EF" /> :
+                  <Ionicons name={speakerNotice.warning ? "alert-circle-outline" : "radio-outline"} size={16}
+                    color={speakerNotice.warning ? "#FF9B9B" : "#B7A2EF"} />}
+                <Text style={[styles.speakerStatusTitle, speakerNotice.warning && styles.speakerStatusWarning]}>{speakerNotice.title}</Text>
+              </View>
+              <Text style={styles.speakerStatusDetail}>{speakerNotice.detail}</Text>
+              {!!recentSpeakerIssue && <Text style={styles.speakerStatusWarning}>{recentSpeakerIssue}</Text>}
+            </View>
+          )}
           {meta?.cover ? (
             <Image source={{ uri: meta.cover }} style={styles.cover} />
           ) : (
@@ -925,6 +947,7 @@ export default function PlayerScreen() {
             <Text style={styles.songTitle} selectable={false}>{meta?.title || "Unbekannter Titel"}</Text>
             <Text style={styles.songAuthor} selectable={false}>{meta?.author || "Unbekannter Künstler"}</Text>
             {meta?.index !== undefined && meta?.total !== undefined && ( <Text style={styles.queueText} selectable={false}>{meta.index + 1} / {meta.total}</Text> )}
+            <VoteButtons voting={voting} filename={meta?.filename} playId={meta?.playId} isSpeaker={meta?.isSpeaker} />
           </View>
 
           <View style={styles.progressBarWrapper}>
@@ -978,7 +1001,7 @@ export default function PlayerScreen() {
               <View style={styles.sheetHandle} />
             </View>
             <Text style={styles.queueHeader} selectable={false}>Queue</Text>
-            <SpeakerQueueRow notice={speakerNotice} />
+            <SpeakerQueueRow notice={speakerNotice} recentWarning={recentSpeakerIssue} />
             <ScrollView
               ref={queueScrollRef}
               style={{ flex: 1 }}
@@ -1006,7 +1029,7 @@ export default function PlayerScreen() {
         <ScrollView contentContainerStyle={[styles.centerContent, isDesktop && styles.centerContentDesktop,
           isDesktop && { paddingLeft: width < 1200 ? 238 : 308, paddingRight: width < 1200 ? 328 : 448 }]} showsVerticalScrollIndicator={false}>
           {isDesktop && (
-            <NewsPanel schedule={speakerSchedule} unavailable={speakerUnavailable} notice={speakerNotice} narrow={width < 1200} />
+            <NewsPanel schedule={speakerSchedule} unavailable={speakerUnavailable} notice={speakerNotice} recentWarning={recentSpeakerIssue} narrow={width < 1200} />
           )}
           <View style={[styles.playerColumn, isDesktop && styles.playerColumnDesktop,
             isDesktop && { minWidth: 0 }, isDesktop && width < 1200 && { marginRight: 16 }]}>
@@ -1022,6 +1045,7 @@ export default function PlayerScreen() {
               <Text style={[styles.songTitle, isDesktop && styles.songTitleDesktop]} selectable={false}>{meta?.title || "Unbekannter Titel"}</Text>
               <Text style={[styles.songAuthor, isDesktop && styles.songAuthorDesktop]} selectable={false}>{meta?.author || "Unbekannter Künstler"}</Text>
               {meta?.index !== undefined && meta?.total !== undefined && ( <Text style={styles.queueText} selectable={false}>{meta.index + 1} / {meta.total}</Text> )}
+              <VoteButtons voting={voting} filename={meta?.filename} playId={meta?.playId} isSpeaker={meta?.isSpeaker} />
             </View>
 
             <View style={styles.progressBarWrapper}>
@@ -1076,7 +1100,7 @@ export default function PlayerScreen() {
             isDesktop && width < 1200 && { minWidth: 280, width: 280 }]}>
             {isDesktop && <View style={styles.queueHandleDesktop} />}
             <Text style={styles.queueHeader} selectable={false}>Queue</Text>
-            <SpeakerQueueRow notice={speakerNotice} />
+            <SpeakerQueueRow notice={speakerNotice} recentWarning={recentSpeakerIssue} />
             <ScrollView
               ref={queueScrollRef}
               style={[styles.queueListContent, { flex: 1 }]}

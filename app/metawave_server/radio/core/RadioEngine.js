@@ -13,6 +13,7 @@
 import fs from "fs";
 import path from "path";
 import EventEmitter from "events";
+import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import { getRadioSchedule, storeRadioSchedule } from "../database/DatabaseLogic.js";
 
@@ -45,6 +46,8 @@ export class RadioEngine extends EventEmitter {
     this.speakerEpisode = null;
     this.pendingSpeaker = null;
     this._speakerFadeTimer = null;
+    this._pendingPlayCount = false;
+    this._currentPlayId = null;
 
     // Periodic metadata hot-reload: check every 30 s whether metadata.json changed
     // so that covers, durations and LUFS values become available without restart.
@@ -257,6 +260,9 @@ export class RadioEngine extends EventEmitter {
     if (!song) return;
 
     console.log(`[RadioEngine] Now playing [${index}]: ${song.title} (${song.duration}s)`);
+    this._pendingPlayCount = this.isPaused;
+    this._currentPlayId = this.isPaused ? null : randomUUID();
+    if (!this.isPaused) this.emit("songStarted", song.filename, this._currentPlayId);
 
     if (this.monotoneEnabled && song.lufs) {
       const gainDb = this._calcLufsGain(song);
@@ -479,6 +485,7 @@ export class RadioEngine extends EventEmitter {
       monotoneEnabled: this.monotoneEnabled,
       isPaused:        this.isPaused,
       isSpeaker:       Boolean(this.speakerEpisode),
+      playId:          this.speakerEpisode ? null : this._currentPlayId,
     };
   }
 
@@ -506,6 +513,25 @@ export class RadioEngine extends EventEmitter {
     this.lastQueueHash = hash;
     this.cachedQueueState = state;
     return state;
+  }
+
+  getCatalog() {
+    const data = fs.existsSync(METADATA_FILE)
+      ? JSON.parse(fs.readFileSync(METADATA_FILE, "utf8"))
+      : fs.readdirSync(SONGS_DIR).filter(name => name.endsWith(".mp3")).map(filename => ({ filename }));
+    if (!Array.isArray(data)) throw new Error("Ungültige Song-Metadaten");
+    const seen = new Set();
+    return data.filter(song => {
+      const name = song?.filename;
+      if (typeof name !== "string" || path.basename(name) !== name || !name.endsWith(".mp3") ||
+          name.endsWith(".info.mp3") || seen.has(name) || !fs.existsSync(path.join(SONGS_DIR, name))) return false;
+      seen.add(name);
+      return true;
+    }).map(song => ({
+      filename: song.filename, title: song.title || song.filename, author: song.author || "",
+      cover: song.cover || "", duration: song.duration || 0,
+      lufs: song.lufs && typeof song.lufs.input_i === "number" ? song.lufs : null,
+    }));
   }
 
   getSettings() {
@@ -539,6 +565,11 @@ export class RadioEngine extends EventEmitter {
     if (this.speakerEpisode) this.speakerEpisode.startedAt = Date.now() - this._pausedElapsed * 1000;
     else this._trackStartedAt = Date.now() - this._pausedElapsed * 1000;
     this.isPaused = false;
+    if (this._pendingPlayCount && !this.speakerEpisode && song) {
+      this._pendingPlayCount = false;
+      this._currentPlayId = randomUUID();
+      this.emit("songStarted", song.filename, this._currentPlayId);
+    }
     this._scheduleTrackAdvance(this.speakerEpisode?.duration || song?.duration || 0);
     this._scheduleSpeakerFade();
     console.log(`[RadioEngine] Fortgesetzt bei ${this._pausedElapsed}s: ${reason}`);
