@@ -15,7 +15,9 @@ Optional mit nur bestimmten Songs:
 import sys
 import json
 import argparse
+import math
 from pathlib import Path
+from storage import write_json_atomic
 
 try:
     from update_playlist import SONGS_DIR, METADATA_FILE, analyze_lufs
@@ -43,7 +45,7 @@ def reanalyze_all_songs(specific_files=None):
     total = len(metadata)
     if total == 0:
         print("[reanalyze_lufs] Keine Songs in metadata.json gefunden.")
-        return False
+        return True
     
     print(f"[reanalyze_lufs] Starte LUFS-Re-Analyse für {total} Songs...")
     print(f"[reanalyze_lufs] Ziel: EBU R128 Standard (-16 LUFS)")
@@ -72,7 +74,11 @@ def reanalyze_all_songs(specific_files=None):
             continue
         
         # Prüfe ob LUFS-Daten bereits vorhanden sind
-        has_lufs = song.get("lufs") is not None
+        lufs = song.get("lufs")
+        has_lufs = isinstance(lufs, dict) and all(
+            isinstance(lufs.get(key), (int, float)) and math.isfinite(lufs[key])
+            for key in ("input_i", "input_tp", "input_lra", "input_thresh", "target_offset")
+        )
         
         if has_lufs and not specific_files:
             # Skip wenn bereits LUFS-Daten vorhanden (außer bei manueller Auswahl)
@@ -86,6 +92,7 @@ def reanalyze_all_songs(specific_files=None):
         
         if lufs_data:
             song["lufs"] = lufs_data
+            write_json_atomic(METADATA_FILE, metadata)
             input_i = lufs_data.get("input_i", 0)
             print(f"[{idx}/{total}] {filename}: {input_i:.1f} LUFS")
             updated_count += 1
@@ -95,8 +102,7 @@ def reanalyze_all_songs(specific_files=None):
     
     # Speichere aktualisierte Metadata
     try:
-        with open(METADATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2, ensure_ascii=False)
+        write_json_atomic(METADATA_FILE, metadata)
         print()
         print(f"[reanalyze_lufs] Metadata erfolgreich aktualisiert!")
         print(f"[reanalyze_lufs] Statistik:")
@@ -104,7 +110,7 @@ def reanalyze_all_songs(specific_files=None):
         print(f"    - Übersprungen: {skipped_count}")
         print(f"    - Fehler: {error_count}")
         print(f"    - Gesamt: {total}")
-        return True
+        return error_count == 0
     except Exception as e:
         print(f"[reanalyze_lufs] Fehler beim Speichern der Metadata: {e}")
         return False
@@ -157,13 +163,12 @@ def force_reanalyze_all():
     
     # Speichere
     try:
-        with open(METADATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2, ensure_ascii=False)
+        write_json_atomic(METADATA_FILE, metadata)
         print()
         print(f"[reanalyze_lufs] Force Re-Analyse abgeschlossen!")
         print(f"    - Analysiert: {updated_count}")
         print(f"    - Fehler: {error_count}")
-        return True
+        return error_count == 0
     except Exception as e:
         print(f"[reanalyze_lufs] Fehler beim Speichern: {e}")
         return False

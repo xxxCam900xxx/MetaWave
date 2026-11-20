@@ -360,9 +360,11 @@ export default function PlaylistsScreen() {
         {/* Info box */}
         <View style={styles.infoBox}>
           <Text style={styles.infoText}>
-            Wähle eine Hauptplaylist. Weitere aktive Playlists können jährlich zu einem
-            bestimmten Zeitraum beigemischt werden. Nach Änderungen an Playlists bitte
-            synchronisieren; Zeiten gelten in der Schweiz. Spotify wird für die
+            Markiere eine Playlist als Hauptplaylist. Weitere aktive Playlists werden
+            nur während ihres eingestellten jährlichen Zeitraums beigemischt.
+            Aktiv lassen bedeutet, dass ihre Songs synchronisiert werden.
+            Automatischer Sync monatlich;
+            nach Änderungen kannst du ihn auch sofort starten. Zeiten gelten in der Schweiz. Spotify wird für die
             Radioausspielung nicht unterstützt.
           </Text>
         </View>
@@ -496,16 +498,29 @@ export default function PlaylistsScreen() {
                       {isActive ? "Aktiv" : "Inaktiv"} · {pl.is_main ? "Hauptplaylist" :
                         pl.start_date ? `Jährlich ${pl.start_date} – ${pl.end_date} · täglich ${pl.start_time} – ${pl.end_time}` : "Kein Zeitraum"}
                     </Text>
-                    {!pl.is_main && (
-                      <View style={styles.programActions}>
-                        <TouchableOpacity disabled={saving} onPress={() => saveProgram(pl, true)}>
-                          <Text style={styles.programLink}>Als Hauptplaylist wählen</Text>
-                        </TouchableOpacity>
+                    <View style={styles.programActions}>
+                      <TouchableOpacity
+                        style={styles.mainChoice}
+                        accessibilityRole="checkbox"
+                        accessibilityLabel={`${pl.name} als Hauptplaylist`}
+                        accessibilityState={{ checked: Boolean(pl.is_main), disabled: saving }}
+                        aria-checked={Boolean(pl.is_main)}
+                        disabled={saving}
+                        onPress={() => { if (!pl.is_main) void saveProgram(pl, true); }}
+                      >
+                        <Ionicons
+                          name={pl.is_main ? "checkbox" : "square-outline"}
+                          size={20}
+                          color={pl.is_main ? "#4CAF50" : "#a3a3a3"}
+                        />
+                        <Text style={styles.mainChoiceLabel}>Hauptplaylist</Text>
+                      </TouchableOpacity>
+                      {!pl.is_main && (
                         <TouchableOpacity disabled={saving} onPress={() => editProgram(pl)}>
                           <Text style={styles.programLink}>Zeitraum einstellen</Text>
                         </TouchableOpacity>
-                      </View>
-                    )}
+                      )}
+                    </View>
                   </View>
                   <View style={styles.playlistActions}>
                     <Switch

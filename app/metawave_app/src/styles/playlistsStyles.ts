@@ -163,8 +163,19 @@ export const playlistsStyles = StyleSheet.create<any>({
   programActions: {
     flexDirection: "row",
     flexWrap: "wrap",
+    alignItems: "center",
     gap: 14,
     marginTop: 10,
+  },
+  mainChoice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  mainChoiceLabel: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: "600",
   },
   programLink: {
     color: colors.primary,

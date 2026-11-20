@@ -30,3 +30,16 @@ def fetch_active_playlists():
             return cursor.fetchall()
     finally:
         conn.close()
+
+
+def fetch_all_playlists():
+    """Liest aktive und inaktive Playlists zum Schutz gemeinsam genutzter Titel."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, name, url, is_active FROM playlists ORDER BY created_at ASC"
+            )
+            return cursor.fetchall()
+    finally:
+        conn.close()

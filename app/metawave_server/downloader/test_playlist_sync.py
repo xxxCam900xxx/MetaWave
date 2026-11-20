@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 fake_db = types.ModuleType("db_client")
-fake_db.fetch_active_playlists = lambda: []
+fake_db.fetch_all_playlists = lambda: []
 with patch.dict(sys.modules, {"db_client": fake_db}):
     sync = importlib.import_module("sync_playlist")
 with patch.object(Path, "mkdir"):
@@ -18,7 +18,7 @@ with patch.object(Path, "mkdir"):
 
 class PlaylistSyncTests(unittest.TestCase):
     def test_failed_or_empty_source_aborts_before_writing_cleanup_or_membership(self):
-        playlists = [{"id": 1, "name": "Main", "url": "one"}, {"id": 2, "name": "Season", "url": "two"}]
+        playlists = [{"id": 1, "name": "Main", "url": "one", "is_active": True}, {"id": 2, "name": "Season", "url": "two", "is_active": True}]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             metadata = root / "metadata.json"
@@ -31,7 +31,7 @@ class PlaylistSyncTests(unittest.TestCase):
                  patch.object(sync, "METADATA_FILE", str(metadata)), \
                  patch.object(sync, "DELETED_VIDEOS_FILE", str(deletion)), \
                  patch.object(sync, "MEMBERSHIP_FILE", str(membership)), \
-                 patch.object(sync, "fetch_active_playlists", return_value=playlists), \
+                 patch.object(sync, "fetch_all_playlists", return_value=playlists), \
                  patch.object(sync.subprocess, "run", side_effect=[
                      subprocess.CompletedProcess([], 0, stdout="new\nhttps://video\n", stderr=""),
                      subprocess.CalledProcessError(1, ["yt-dlp"], stderr="failed"),
@@ -46,14 +46,16 @@ class PlaylistSyncTests(unittest.TestCase):
                 sync.fetch_playlist_videos("empty")
 
     def test_successful_sync_preserves_shared_membership(self):
-        playlists = [{"id": 1, "name": "Main", "url": "one"}, {"id": 2, "name": "Season", "url": "two"}]
-        with patch.object(sync, "fetch_active_playlists", return_value=playlists), \
+        playlists = [{"id": 1, "name": "Main", "url": "one", "is_active": True}, {"id": 2, "name": "Season", "url": "two", "is_active": False}]
+        with patch.object(sync, "fetch_all_playlists", return_value=playlists), \
              patch.object(sync, "fetch_playlist_videos", side_effect=[
                  {"a": "url-a", "b": "url-b"}, {"b": "url-b", "c": "url-c"},
              ]):
-            videos, membership = sync.fetch_all_active_playlists()
+            videos, membership, active = sync.fetch_playlist_sources()
         self.assertEqual(set(videos), {"a", "b", "c"})
         self.assertEqual(membership, {"1": ["a", "b"], "2": ["b", "c"]})
+        self.assertEqual(active, {"a", "b"})
+        self.assertEqual(sync.compute_diff({"a": {}, "c": {}}, videos, active)[1], set())
 
     def test_partial_download_is_reported_as_failure(self):
         with patch.object(downloader, "download_video", side_effect=[True, False]), \

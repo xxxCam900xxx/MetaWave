@@ -4,14 +4,16 @@ import sys
 import json
 import time
 import re
+import math
 from pathlib import Path
+from storage import write_json_atomic
 
 # PLAYLIST_URL wird nicht mehr verwendet – Playlists werden aus der Datenbank geladen.
 # Die Variable bleibt für ältere Skripte als leerer Fallback erhalten.
 PLAYLIST_URL = os.environ.get("PLAYLIST_URL", "")
 
 # Basisverzeichnisse und Dateien
-SONGS_DIR = Path("/songs")
+SONGS_DIR = Path(os.environ.get("SONGS_DIR", "/songs"))
 METADATA_FILE = SONGS_DIR / "metadata.json"
 PLAYLIST_FILE = SONGS_DIR / "playlist_urls.json"
 
@@ -23,8 +25,12 @@ BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "20"))
 BATCH_DELAY_SECONDS = int(os.environ.get("BATCH_DELAY_SECONDS", "5"))
 VIDEO_DELAY_SECONDS = float(os.environ.get("VIDEO_DELAY_SECONDS", "1.0"))
 
-MAX_RETRIES = 5
-INITIAL_DELAY_SECONDS = 60
+MAX_RETRIES = max(1, int(os.environ.get("MAX_RETRIES", "5")))
+INITIAL_DELAY_SECONDS = max(1, int(os.environ.get("INITIAL_DELAY_SECONDS", "60")))
+
+
+class RateLimitError(RuntimeError):
+    pass
 
 def is_rate_limit_error(stderr: str) -> bool:
     if not stderr:
@@ -35,56 +41,12 @@ def is_rate_limit_error(stderr: str) -> bool:
         "too many requests",
         "http error 429",
         "429 too many",
+        "http error 403",
+        "sign in to confirm",
+        "confirm you’re not a bot",
+        "confirm you're not a bot",
+        "captcha",
     ])
-
-
-def run_with_retries(cmd, description: str):
-    attempt = 0
-    delay = INITIAL_DELAY_SECONDS
-
-    while attempt < MAX_RETRIES:
-        attempt += 1
-        print(f"[downloader] {description} (Versuch {attempt}/{MAX_RETRIES})")
-
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True
-            )
-        except subprocess.CalledProcessError as e:
-            stderr = (e.stderr or "") if hasattr(e, 'stderr') else str(e)
-            print(stderr)
-            if is_rate_limit_error(stderr):
-                print(f"[downloader] Rate-Limit erkannt. Warte {delay}s...")
-                time.sleep(delay)
-                delay *= 2
-                continue
-            print("[downloader] Nicht-Rate-Limit-Fehler. Überspringe.")
-            return False, False
-        except Exception as e:
-            stderr = str(e)
-            print(stderr)
-            print("[downloader] Unbekannter Fehler beim Aufruf von yt-dlp. Überspringe.")
-            return False, False
-
-        if result.returncode == 0:
-            return True, False
-
-        stderr = result.stderr or ""
-        print(stderr)
-
-        if is_rate_limit_error(stderr):
-            print("[downloader] Max Retries erreicht, Rate-Limit erkannt. Beende erfolgreich, damit Radio starten kann.")
-            break
-        else:
-            print("[downloader] Kein weiterer Retry (Maximum erreicht oder kein Rate-Limit-Fehler). Breche ab.")
-            result.check_returncode()  # wirft CalledProcessError
-
-    print(f"[downloader] Rate-Limit erkannt. Warte {delay} Sekunden vor erneutem Versuch...")
-    time.sleep(delay)
-    # Nach Ausschöpfen aller Versuche signalisieren wir ein Rate-Limit.
-    return False, True
 
 
 def _yt_dlp_flatten(playlist_url: str):
@@ -156,12 +118,11 @@ def _make_yt_dlp_cmd(video_url: str):
     """Baue den yt-dlp Befehl für einen einzelnen Video-Download."""
     cmd = [
         "yt-dlp",
-        "--ignore-errors",
         "-x",
         "--audio-format", "mp3",
         "--audio-quality", "0",
         "--write-info-json",
-        "-o", f"{SONGS_DIR.as_posix()}/%(title)s.%(ext)s",
+        "-o", f"{SONGS_DIR.as_posix()}/%(title)s [%(id)s].%(ext)s",
         video_url,
     ]
     yt_cookies = os.environ.get("YT_COOKIES")
@@ -173,17 +134,28 @@ def _make_yt_dlp_cmd(video_url: str):
 def download_video(video_url: str) -> bool:
     """Lädt ein einzelnes Video, gibt True bei Erfolg zurück."""
     cmd = _make_yt_dlp_cmd(video_url)
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-    except Exception as e:
-        print(f"[downloader] Unerwarteter Fehler beim Download von {video_url}: {e}")
-        return False
-
-    if result.returncode == 0:
-        return True
-
-    stderr = result.stderr or result.stdout or ""
-    print(f"[downloader] Fehler beim Download von {video_url}: {stderr}")
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+            if result.returncode == 0:
+                return True
+            error = result.stderr or result.stdout or "yt-dlp meldete einen Fehler"
+        except subprocess.TimeoutExpired:
+            error = "Download-Zeitlimit überschritten"
+        except OSError as exc:
+            print(f"[downloader] yt-dlp konnte nicht gestartet werden: {exc}")
+            return False
+        print(f"[downloader] Versuch {attempt}/{MAX_RETRIES} fehlgeschlagen: {error}")
+        if not is_rate_limit_error(error) and any(
+            reason in error.lower() for reason in ("private video", "video unavailable", "members-only")
+        ):
+            return False
+        if attempt < MAX_RETRIES:
+            delay = min(INITIAL_DELAY_SECONDS * (2 ** (attempt - 1)), 900)
+            print(f"[downloader] Nächster Versuch in {delay}s.")
+            time.sleep(delay)
+    if is_rate_limit_error(error):
+        raise RateLimitError("YouTube blockiert oder begrenzt den Zugriff; der Lauf wird später erneut versucht.")
     return False
 
 
@@ -238,7 +210,7 @@ def analyze_lufs(mp3_path: Path):
     ]
     
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     except subprocess.TimeoutExpired:
         print(f"[LUFS] Timeout bei Analyse von {mp3_path.name}")
         return None
@@ -248,6 +220,9 @@ def analyze_lufs(mp3_path: Path):
     
     # FFmpeg gibt loudnorm JSON im stderr aus
     stderr = result.stderr or ""
+    if result.returncode != 0:
+        print(f"[LUFS] FFmpeg fehlgeschlagen für {mp3_path.name}: {stderr[-500:]}")
+        return None
     
     # Finde JSON-Block im stderr (beginnt mit '{' und endet mit '}')
     json_match = re.search(r'\{[^{}]*"input_i"[^{}]*\}', stderr, re.DOTALL)
@@ -259,13 +234,16 @@ def analyze_lufs(mp3_path: Path):
         lufs_data = json.loads(json_match.group(0))
         
         # Extrahiere relevante Werte für Second Pass
-        return {
-            "input_i": float(lufs_data.get("input_i", "-23.0")),
-            "input_tp": float(lufs_data.get("input_tp", "-1.5")),
-            "input_lra": float(lufs_data.get("input_lra", "11.0")),
-            "input_thresh": float(lufs_data.get("input_thresh", "-33.0")),
-            "target_offset": float(lufs_data.get("target_offset", "0.0"))
+        values = {
+            "input_i": float(lufs_data["input_i"]),
+            "input_tp": float(lufs_data["input_tp"]),
+            "input_lra": float(lufs_data["input_lra"]),
+            "input_thresh": float(lufs_data["input_thresh"]),
+            "target_offset": float(lufs_data["target_offset"])
         }
+        if not all(math.isfinite(value) for value in values.values()):
+            raise ValueError("LUFS-Werte sind nicht endlich")
+        return values
     except (json.JSONDecodeError, ValueError, KeyError) as e:
         print(f"[LUFS] JSON-Parse-Fehler für {mp3_path.name}: {e}")
         return None
@@ -278,8 +256,6 @@ def build_metadata():
     LUFS-Daten werden aus bestehender metadata.json übernommen (falls vorhanden).
     Neue LUFS-Analysen werden separat parallelisiert durchgeführt.
     """
-    from collections import OrderedDict
-
     # Lade bestehende metadata.json um LUFS-Daten zu übernehmen
     existing_lufs = {}
     if METADATA_FILE.exists():
@@ -287,18 +263,19 @@ def build_metadata():
             with METADATA_FILE.open("r", encoding="utf-8") as f:
                 old_metadata = json.load(f)
                 # Unterstütze beide Formate: {"songs": [...]} und direkt [...]
-                songs_list = old_metadata.get('songs', []) if isinstance(old_metadata, dict) else old_metadata
+                songs_list = old_metadata.get('songs') if isinstance(old_metadata, dict) else old_metadata
                 
-                if isinstance(songs_list, list):
-                    for song in songs_list:
-                        if isinstance(song, dict):
-                            vid = song.get('id')
-                            lufs = song.get('lufs')
-                            if vid and lufs:
-                                existing_lufs[vid] = lufs
-                    print(f"[build_metadata] {len(existing_lufs)} LUFS-Daten aus bestehender metadata.json geladen")
+                if not isinstance(songs_list, list):
+                    raise ValueError("metadata.json enthält keine Titelliste")
+                for song in songs_list:
+                    if isinstance(song, dict):
+                        vid = song.get('id')
+                        lufs = song.get('lufs')
+                        if vid and lufs:
+                            existing_lufs[vid] = lufs
+                print(f"[build_metadata] {len(existing_lufs)} LUFS-Daten aus bestehender metadata.json geladen")
         except Exception as e:
-            print(f"[build_metadata] Hinweis: Konnte bestehende LUFS-Daten nicht laden ({e})")
+            raise RuntimeError(f"Bestehende Metadaten konnten nicht gelesen werden: {e}") from e
 
     info_by_id = {}
 
@@ -314,13 +291,18 @@ def build_metadata():
         try:
             with file.open("r", encoding="utf-8") as f:
                 data = json.load(f)
-        except Exception:
-            continue
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(f"Infodatei konnte nicht gelesen werden: {file.name}") from exc
 
         mp3_file = file.with_suffix("").with_suffix(".mp3")
-        vid = data.get("id")
-        if not isinstance(vid, str):
+        if not mp3_file.is_file() or mp3_file.stat().st_size == 0:
+            print(f"[build_metadata] Unvollständiger Download: {mp3_file.name}")
             continue
+        vid = data.get("id")
+        if not isinstance(vid, str) or not vid:
+            raise ValueError(f"Video-ID fehlt in {file.name}")
+        if vid in info_by_id:
+            raise ValueError(f"Mehrere Audiodateien für Video-ID {vid}")
         
         # LUFS-Daten aus bestehender metadata.json übernehmen (falls vorhanden)
         lufs_data = existing_lufs.get(vid)
@@ -335,36 +317,8 @@ def build_metadata():
             "lufs": lufs_data,
         }
 
-    metadata = []
-    playlist_url = os.environ.get("PLAYLIST_URL")
-    used_playlist_filter = False
-
-    if playlist_url:
-        try:
-            playlist_urls = get_playlist_entries(playlist_url)
-            playlist_ids = []
-            for url in playlist_urls:
-                if "v=" in url:
-                    vid_part = url.split("v=")[-1]
-                    vid = vid_part.split("&")[0]
-                    if vid:
-                        playlist_ids.append(vid)
-
-            for vid in playlist_ids:
-                entry = info_by_id.get(vid)
-                if entry is not None:
-                    metadata.append(entry)
-
-            used_playlist_filter = True
-        except Exception as e:
-            print(f"[downloader] Hinweis: Konnte Playlist für Metadata-Bau nicht laden ({e}). Verwende alle vorhandenen Dateien.")
-
-    if not used_playlist_filter:
-        metadata = list(info_by_id.values())
-
-    METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with METADATA_FILE.open("w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2)
+    metadata = list(info_by_id.values())
+    write_json_atomic(METADATA_FILE, metadata)
 
     print(f"[downloader] Metadata erstellt ({len(metadata)} Einträge).")
 

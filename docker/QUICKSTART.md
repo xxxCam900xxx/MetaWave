@@ -153,13 +153,15 @@ Bei einem anderen Fehlercode helfen die Logs im Abschnitt unten.
    füge eine erreichbare YouTube-Playlist hinzu und klicke **Jetzt
    synchronisieren**. Die erstmalige Synchronisierung kann länger dauern.
    Nutze nur Inhalte, für die du die erforderlichen Rechte hast.
-4. Starte die Wiedergabe im Player. Die Synchronisierung kann nicht mehr in
-   aktiven Playlists enthaltene heruntergeladene Songs lokal bereinigen.
+4. Starte die Wiedergabe im Player. Titel, die in keiner konfigurierten
+   Playlist mehr vorkommen, werden zur Bereinigung vorgemerkt.
 
 #### Hauptplaylist und jährliche Saison-Playlists
 
-Im **Playlist Manager** kannst du bei einer Playlist **Als Hauptplaylist
-wählen**. Sie bildet die musikalische Grundlage. Bei weiteren Playlists
+Im **Playlist Manager** kannst du bei einer Playlist das Kästchen
+**Hauptplaylist** anhaken. Sie bildet die musikalische Grundlage. Um die
+Hauptplaylist zu wechseln, hake das Kästchen bei einer anderen Playlist an.
+Bei weiteren Playlists
 öffnest du **Zeitraum einstellen** und gibst das Anfangs- und Enddatum als
 `MM-TT` und die täglichen Uhrzeiten als `HH:MM` ein. Beispiel für Weihnachten:
 Datum `11-25` bis `12-26`, täglich `08:00` bis `18:00`. Beide Daten zählen
@@ -188,9 +190,35 @@ nicht synchronisiert ist oder keine abspielbaren Titel enthält, bleibt die
 bisherige Queue bestehen; prüfe den Synchronisierungsstatus und die Logs.
 
 Neue und geänderte YouTube-Playlists manuell synchronisieren. Der Downloader
-synchronisiert zusätzlich beim Start; es gibt derzeit keinen monatlichen
-Automatiklauf. Leere oder nicht erreichbare Playlists und fehlgeschlagene
-Downloads brechen den Lauf mit einem Fehler ab, bevor Songs bereinigt werden.
+synchronisiert zusätzlich jeden Monat ab dem ersten Tag um 06:00 Schweizer
+Zeit. Bei ausgeschaltetem Dienst wird der fällige Lauf beim nächsten Start
+nachgeholt. Nach einem Fehler versucht es der Dienst frühestens eine Stunde
+später erneut; unter **Jetzt synchronisieren** ist auch ein sofortiger
+manueller Start möglich. Fertige Downloads und LUFS-Werte werden bei einem
+erneuten Lauf wiederverwendet. Der Status und die laufenden Meldungen stehen im
+Playlist Manager. Der Dienst muss für Downloads und Analysen laufen.
+
+Titel, die in mindestens einer konfigurierten Playlist stehen, bleiben erhalten,
+auch wenn diese Playlist inaktiv ist. Neue Titel werden nur aus aktiven
+Playlists heruntergeladen. Leere oder nicht erreichbare Playlists, geänderte
+Playlist-Inhalte und fehlgeschlagene Downloads brechen den Lauf mit einem Fehler
+ab, bevor Songs bereinigt werden. Vor der Bereinigung wird der Inhalt erneut
+geprüft. Ein leerer Feed kann daher nicht automatisch zur vollständigen
+Bereinigung verwendet werden.
+
+**Wichtig:** Das automatische Löschen ist derzeit aus Sicherheitsgründen
+gesperrt: Die Radio-Queue kann noch auf entfernte Dateien verweisen. Wenn Titel
+zu bereinigen sind, meldet der Sync deshalb einen Fehler; Downloads und
+LUFS-Analysen bleiben erhalten. Nur wenn das Radio während des gesamten
+Bereinigungslaufs gestoppt bleibt, kann der Downloader für diesen Lauf mit
+`ALLOW_OFFLINE_CLEANUP=1` gestartet werden. Danach die Variable wieder entfernen
+und das Radio neu starten. Ohne diese ausdrückliche Freigabe werden keine
+Audiodateien gelöscht.
+
+Bei Netzwerk- oder YouTube-Fehlern kann trotzdem
+keine vollständige Synchronisierung garantiert werden; es erfolgt kein
+automatischer IP-Wechsel. Verwende nur Audio, für das du die nötigen Rechte
+besitzt.
 Spotify-Playlists können in diesem Radio nicht importiert oder abgespielt
 werden: Die [Spotify Developer Policy](https://developer.spotify.com/policy)
 verbietet unter anderem ein gemeinsames nicht-interaktives Radio und die
