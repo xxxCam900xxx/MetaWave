@@ -8,5 +8,6 @@ RUN pip install --no-cache-dir torch==2.6.0 torchaudio==2.6.0 --index-url "$TORC
     && pip install --no-cache-dir -r requirements.txt
 RUN apt-get update && apt-get install -y --no-install-recommends sox && rm -rf /var/lib/apt/lists/*
 COPY app/metawave_speaker/*.py ./
+COPY app/metawave_speaker/formats.json ./
 ENV PYTHONUNBUFFERED=1
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8010"]

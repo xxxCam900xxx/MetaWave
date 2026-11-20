@@ -1,0 +1,82 @@
+{
+  "formats": {
+    "morgen_kompass": {
+      "name": "Der Morgen-Kompass",
+      "host": "lukas",
+      "tone": "wach, souverän und freundlich",
+      "topics": 3,
+      "focus": ["news", "weather", "markets"],
+      "prompt": "Fasse die wichtigsten verfügbaren Morgenmeldungen zusammen und ordne das verfügbare Tageswetter und den letzten Börsenstand ein."
+    },
+    "deep_dive": {
+      "name": "Deep Dive: Warum eigentlich?",
+      "host": "elena",
+      "tone": "ruhig, neugierig und erklärend",
+      "topics": 1,
+      "focus": ["news"],
+      "prompt": "Erkläre ein Thema verständlich: Was ist passiert, wie funktioniert es und welche Folgen sind durch die gelieferten Fakten belegt?"
+    },
+    "klugscheisser_60s": {
+      "name": "60 Sekunden Klugscheisser",
+      "host": "max",
+      "tone": "clever, leicht verschmitzt und kurzweilig",
+      "topics": 1,
+      "focus": ["news"],
+      "prompt": "Erkläre ein aktuelles Stichwort und einen überraschenden Hintergrund, sofern dieser in den gelieferten Fakten steht. Erfinde keine Fakten."
+    },
+    "tech_markt_radar": {
+      "name": "Tech & Markt Radar",
+      "host": "lukas",
+      "tone": "analytisch, modern und fokussiert",
+      "topics": 2,
+      "focus": ["tech", "markets"],
+      "prompt": "Verbinde passende Technikmeldungen mit den gelieferten Marktständen. Behaupte keine unbelegten Ursachen für Kursbewegungen."
+    },
+    "realitaets_check": {
+      "name": "Der Realitäts-Check",
+      "host": "max",
+      "tone": "trocken und sarkastisch-charmant",
+      "topics": 2,
+      "focus": ["news"],
+      "prompt": "Kommentiere geeignete Alltagsmeldungen mit leichtem, respektvollem Humor. Keine Witze über Leid oder Betroffene."
+    },
+    "presseschau_absurd": {
+      "name": "Die Presseschau der Absurditäten",
+      "host": "max",
+      "tone": "locker, unterhaltsam und erzählerisch",
+      "topics": 2,
+      "focus": ["curious"],
+      "prompt": "Erzähle geeignete kuriose Meldungen wie eine kurze Geschichte, ohne Ereignisse oder Zitate zu erfinden."
+    },
+    "kleiner_weltuntergang": {
+      "name": "Der kleine Weltuntergang",
+      "host": "max",
+      "tone": "spielerisch dramatisch und wie ein Kinotrailer",
+      "topics": 2,
+      "focus": ["curious", "weather", "markets"],
+      "prompt": "Übertreibe nur bei eindeutig harmlosen Alltagsereignissen humorvoll; dramatisiere niemals Katastrophen, Verletzte oder reale Gefahren."
+    },
+    "feierabend_lounge": {
+      "name": "Feierabend-Lounge",
+      "host": "elena",
+      "tone": "ruhig, warm und abrundend",
+      "topics": 3,
+      "focus": ["news", "weather", "markets"],
+      "prompt": "Fasse die verfügbaren Themen entspannt zusammen. Nenne Wetter und Marktstände nur, wenn passende Daten vorliegen."
+    }
+  },
+  "hosts": {
+    "lukas": {"name": "Lukas", "voice": "Ryan", "character": "seriös, klar und energetisch"},
+    "elena": {"name": "Elena", "voice": "Vivian", "character": "warm, ruhig und erklärend"},
+    "max": {"name": "Max", "voice": "Eric", "character": "locker, witzig und sarkastisch"}
+  },
+  "week_plan": {
+    "monday": {"08:00": "morgen_kompass", "10:00": "tech_markt_radar", "14:00": "klugscheisser_60s", "16:00": "feierabend_lounge"},
+    "tuesday": {"08:00": "morgen_kompass", "10:00": "deep_dive", "14:00": "realitaets_check", "16:00": "tech_markt_radar"},
+    "wednesday": {"08:00": "morgen_kompass", "10:00": "klugscheisser_60s", "14:00": "presseschau_absurd", "16:00": "feierabend_lounge"},
+    "thursday": {"08:00": "morgen_kompass", "10:00": "tech_markt_radar", "14:00": "kleiner_weltuntergang", "16:00": "deep_dive"},
+    "friday": {"08:00": "morgen_kompass", "10:00": "klugscheisser_60s", "14:00": "realitaets_check", "16:00": "presseschau_absurd"},
+    "saturday": {"08:00": "feierabend_lounge", "10:00": "deep_dive", "14:00": "presseschau_absurd", "16:00": "kleiner_weltuntergang"},
+    "sunday": {"08:00": "klugscheisser_60s", "10:00": "deep_dive", "14:00": "realitaets_check", "16:00": "feierabend_lounge"}
+  }
+}

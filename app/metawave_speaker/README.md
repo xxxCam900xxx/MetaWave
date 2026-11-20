@@ -1,15 +1,14 @@
 # MetaWave Speaker
 
-Der Dienst bereitet Nachrichten aus drei RSS-Feeds mit lokalem Ollama und
-Qwen3-TTS vor. Die Einstellungen und Audio-Dateien liegen im Docker-Volume
+Der Dienst bereitet ein abwechslungsreiches Radioprogramm aus drei RSS-Feeds
+mit lokalem Ollama und Qwen3-TTS vor. Die Einstellungen und Audio-Dateien liegen im Docker-Volume
 `speaker_data`; die Modell-Caches liegen in `ollama_models` und `speaker_models`.
 Die Moderation ist auf natürliche Übergänge ohne vorgelesene Quellen ausgelegt;
 die Quellenmetadaten bleiben für den Abruf erhalten. Automatisch erzeugte
 Nachrichten können Fehler enthalten und sollten vor einer öffentlichen
 Ausstrahlung redaktionell geprüft werden.
-Die KI-Stimme stellt sich in neu erzeugten Beiträgen als **Alex** vor; die
-Nachrichtensendung heisst **MetaWave Update**. Bereits vorbereitete Beiträge
-behalten ihre bisherige Ansage.
+Neue Beiträge werden von **Lukas**, **Elena** oder **Max** moderiert. Bereits
+vorbereitete Beiträge behalten ihre bisherige Ansage.
 Die API ist nicht auf dem Host veröffentlicht: Die angemeldete MetaWave-App
 erreicht sie über den authentifizierten Radio-Proxy unter `/speaker`.
 
@@ -18,8 +17,11 @@ erreicht sie über den authentifizierten Radio-Proxy unter `/speaker`.
 - `main.py`: API, persistente Jobs und Vorbereitungsablauf
 - `scheduler.py`: Sendezeiten in `Europe/Zurich`
 - `feeds.py`: RSS-Abruf öffentlicher URLs
-- `llm_client.py`: Ollama-Skript mit fester Begrüssung und Überleitung
-- `tts_engine.py`: lokales Qwen3-TTS und WAV-Erzeugung
+- `formats.json`, `program.py`: Formate, Team und Wochenplan
+- `history.py`: Wiederholungsschutz für bestätigte Ausstrahlungen
+- `weather.py`, `markets.py`: Open-Meteo und Marktstände mit Zeitstempeln
+- `llm_client.py`, `speech.py`: Ollama-Prompts und Bereinigung für die Sprachausgabe
+- `tts_engine.py`: lokales Qwen3-TTS, Stimmenwechsel und WAV-Erzeugung
 - `requirements.txt`, `test_*.py`: Abhängigkeiten und Tests
 - `docker/metawave_speaker/`: Image und Compose-Dienste
 
@@ -42,12 +44,12 @@ erreicht sie über den authentifizierten Radio-Proxy unter `/speaker`.
    docker compose -f .\docker\compose.enviroment.yaml logs -f ollama-init metawave-speaker
    ```
 
-3. In MetaWave anmelden, **Einstellungen → Speaker** öffnen und die drei
-   RSS-URLs prüfen. Voreingestellt sind heise online, SRF Schweiz und eine
+3. In MetaWave anmelden, **Einstellungen → Speaker** öffnen. Fest vorgegeben
+   sind heise online, SRF Schweiz und eine
    Google-News-Suche nach Zürich. Der Google-Feed ist laut Anbieter nur für
-   persönliche, nicht kommerzielle Nutzung vorgesehen; für eine öffentliche
-   oder kommerzielle Ausspielung eine dafür zugelassene Zürich-Quelle
-   konfigurieren. Nutzungsrechte und Richtigkeit aller Quellen selbst prüfen.
+   persönliche, nicht kommerzielle Nutzung vorgesehen. Nutzungsrechte und
+   Richtigkeit aller Quellen vor der Ausspielung selbst prüfen; falls die
+   Nutzung nicht zulässig ist, Speaker deaktiviert lassen.
    Die Feeds müssen öffentlich erreichbar sein, dürfen nicht auf private
    Netzwerkadressen zeigen und dürfen keine HTTP-Weiterleitung benötigen.
 4. **Jetzt testen / Vorschau generieren** drücken. Nach RSS-Abruf,
@@ -94,11 +96,10 @@ Konfiguration oder Zeiten nach Beginn des Vorlaufs geändert,
 muss für die neue Konfiguration wieder ein vollständiger Vorlauf möglich sein.
 Nach Neustarts werden unterbrochene Vorbereitungen als fehlgeschlagen markiert.
 Beiträge erhalten am Anfang und Ende eine kurze, lokal erzeugte
-Nachrichtenkennung. Angestrebt werden ein bis drei Minuten für den
-Nachrichtenbeitrag inklusive Kennung; die Songansagen kommen zusätzlich hinzu.
+Nachrichtenkennung. Die Dauer hängt vom Format ab; die Songansagen kommen zusätzlich hinzu.
 Neu erzeugte Sprachaufnahmen werden für eine höhere Lautstärke normalisiert;
 bereits vorhandene Beiträge bleiben unverändert.
-Liegt das fertige Audio ausserhalb von 60 bis 180 Sekunden, wird der Job mit
+Liegt das fertige Audio ausserhalb von 10 bis 180 Sekunden, wird der Job mit
 einer Fehlermeldung verworfen und nicht ausgespielt. Längere Beiträge brauchen
 besonders auf der CPU deutlich mehr Vorbereitungszeit.
 
@@ -107,6 +108,77 @@ automatisch entfernt, auch die letzte Vorschau. Die Bereinigung läuft beim
 Start und danach etwa minütlich. Noch laufende Vorbereitungen, Sendungen für
 den aktuellen oder einen zukünftigen Tag und Dateien, die möglicherweise
 gerade abgespielt werden, bleiben zunächst erhalten.
+
+## Wochenplan und Formate
+
+Der Standardplan gilt für `Europe/Zurich`; Vorbereitung und Ausspielung
+funktionieren wie oben beschrieben. Die Zeiten bleiben in den Einstellungen
+änderbar. Für Zeiten ohne Matrixeintrag wird die Feierabend-Lounge verwendet.
+
+| Tag | 08:00 | 10:00 | 14:00 | 16:00 |
+|---|---|---|---|---|
+| Montag | Morgen-Kompass | Tech & Markt Radar | 60 Sekunden Klugscheisser | Feierabend-Lounge |
+| Dienstag | Morgen-Kompass | Deep Dive | Realitäts-Check | Tech & Markt Radar |
+| Mittwoch | Morgen-Kompass | 60 Sekunden Klugscheisser | Presseschau | Feierabend-Lounge |
+| Donnerstag | Morgen-Kompass | Tech & Markt Radar | Kleiner Weltuntergang | Deep Dive |
+| Freitag | Morgen-Kompass | 60 Sekunden Klugscheisser | Realitäts-Check | Presseschau |
+| Samstag | Feierabend-Lounge | Deep Dive | Presseschau | Kleiner Weltuntergang |
+| Sonntag | 60 Sekunden Klugscheisser | Deep Dive | Realitäts-Check | Feierabend-Lounge |
+
+Die Einstellungen zeigen den heutigen Plan mit Uhrzeit, Format und Moderator
+in Schweizer Ortszeit. Er basiert auf den gespeicherten Sendezeiten und wird
+regelmässig aktualisiert; bei ungeeigneten Meldungen kann die Lounge übernehmen.
+Im Player steht der Plan auf dem Desktop in der Nachrichtenleiste. Mobil führt
+der Link im Speaker-Status zum Plan in der Queue; der nächste geplante Beitrag
+wird dort ebenfalls angezeigt.
+
+Der Wochenplan, die Stimmen und weitere Einstellungen stehen in der persistierten
+`config.json` im Volume. Über `GET /speaker/config` erhält man die vollständige
+Konfiguration; über `POST /speaker/config` kann man sie aktualisieren.
+Dabei das **vollständige** JSON zurücksenden, damit keine anderen Einstellungen
+auf Standardwerte zurückgesetzt werden. Die drei RSS-URLs sind fest und lassen
+sich auch über die API nicht ändern. Früher gespeicherte andere URLs werden
+beim Start durch diese Vorgaben ersetzt. Beispiel für einzelne Felder:
+
+```json
+{
+  "week_plan": {
+    "monday": {"08:00": "morgen_kompass", "10:00": "tech_markt_radar", "14:00": "klugscheisser_60s", "16:00": "feierabend_lounge"}
+  },
+  "weather_location": {"name": "Zürich", "latitude": 47.3769, "longitude": 8.5417},
+  "dialog_formats": ["morgen_kompass"],
+  "cohost": "elena"
+}
+```
+
+Dies ist nur ein Ausschnitt: `week_plan` muss alle sieben englisch benannten
+Wochentage enthalten. `hosts` ordnet `lukas`, `elena` und `max` Namen,
+Qwen-Stimmen (`voice`) und Charaktere zu. Die Vorgaben sind Ryan, Vivian und
+Eric. `watchlist` enthält Objekte mit `symbol` und sprechbarem `name`.
+In `dialog_formats` können Format-IDs für Doppelmoderation eingetragen werden;
+ohne Einträge moderiert jeweils eine Person. Der Co-Host wird bei Bedarf so
+gewählt, dass zwei unterschiedliche Rollen sprechen. Formattexte, Zuordnung
+der Hosts und Standardmatrix stehen in `formats.json` und erfordern nach
+Änderungen einen Image-Neubau.
+
+Der Tech-Radar wird am Wochenende auch bei abweichender Matrix durch die
+Lounge ersetzt. Gibt es für Technik oder kuriose Formate keine passend
+erkennbaren Meldungen, wird ebenfalls die Lounge verwendet. Meldungen werden
+anhand normalisierter Titel und URLs dedupliziert; inhaltlich ähnliche Artikel
+mit anderen Titeln/URLs können weiterhin vorkommen. Nur bestätigte
+Ausstrahlungen schreiben die tägliche History, nicht Vorschauen oder
+fehlgeschlagene Jobs. Sind alle drei Feeds nicht erreichbar, schlägt der Job
+sichtbar fehl.
+
+Open-Meteo benötigt keinen Schlüssel. Die konfigurierbare Watchlist verwendet
+Yahoo-Finance-Chartdaten; Anbieter können verzögert, unvollständig oder
+zeitweise nicht erreichbar sein. Die letzten verfügbaren Kurse tragen einen
+Zeitstempel und werden mit dem vorherigen verfügbaren Handelsschluss
+verglichen; am Wochenende sind Börsenkurse keine Livekurse. Bei Ausfall
+werden fehlende Daten ausgelassen und protokolliert. Nutzungsbedingungen und
+Rechte für die geplante Ausstrahlung bitte selbst prüfen. Die KI kann trotz
+Prompt und Textbereinigung falsche oder unnatürliche Aussagen erzeugen;
+Finanzdaten sind keine Anlageberatung.
 
 MetaWave verwendet **keinen zentralen Audiostream**. Aktive Player werden über
 den Radio-Server synchronisiert und blenden Musik und Beitrag beim Wechsel kurz
@@ -161,3 +233,7 @@ Intern auf Port 8010: `GET /status`, `GET /config`, `POST /config`,
 der Jobstatus meldet `preparing`, `ready` oder `failed`. `/internal/due` und
 `/internal/ack` sind nur für die Radio-Ausspielung vorgesehen. Externer Zugriff
 erfolgt ausschliesslich über `/speaker/...` am Radio mit dessen Bearer-Token.
+`GET /status` enthält `today_date` und `today_program` mit den geplanten
+Formaten des aktuellen Schweizer Kalendertags sowie `next_program` für die
+nächste Sendung. Sobald diese bereit ist, zeigt `next_program` das tatsächlich
+vorbereitete Format, auch wenn ein Ersatzformat verwendet wurde.

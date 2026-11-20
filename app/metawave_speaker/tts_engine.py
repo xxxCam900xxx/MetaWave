@@ -44,7 +44,10 @@ class TTSEngine:
     def __init__(self) -> None:
         self.model = None
 
-    def render(self, text: str, output: Path) -> float:
+    def render(self, text: str, output: Path, speaker: str | None = None) -> float:
+        return self.render_segments([(speaker or os.getenv("SPEAKER_TTS_VOICE", "Ryan"), text)], output)
+
+    def render_segments(self, segments: list[tuple[str, str]], output: Path) -> float:
         import soundfile as sf
         import numpy as np
         import torch
@@ -69,16 +72,17 @@ class TTSEngine:
                 dtype=dtype,
                 attn_implementation="eager",
             )
-        chunks = _chunks(text)
-        if not chunks:
+        chunks = [(voice, chunk) for voice, text in segments for chunk in _chunks(text)]
+        if not chunks or any(not voice for voice, _ in chunks):
             raise ValueError("Der Sprechertext ist leer")
         audio = []
         rate = None
-        for chunk in chunks:
+        previous_voice = None
+        for voice, chunk in chunks:
             waves, chunk_rate = self.model.generate_custom_voice(
                 text=chunk,
                 language="German",
-                speaker=os.getenv("SPEAKER_TTS_VOICE", "Ryan"),
+                speaker=voice,
                 instruct=os.getenv(
                     "SPEAKER_TTS_INSTRUCT",
                     "Sprich auf Deutsch wie ein freundlicher, natürlicher Radiomoderator: "
@@ -90,7 +94,10 @@ class TTSEngine:
             if rate is not None and chunk_rate != rate:
                 raise RuntimeError("Qwen TTS returned inconsistent sample rates")
             rate = chunk_rate
+            if previous_voice is not None and previous_voice != voice:
+                audio.append(np.zeros(int(rate * 0.35), dtype=np.float32))
             audio.append(waves[0])
+            previous_voice = voice
         samples = _normalize(np.concatenate(audio))
         sf.write(str(output), samples, rate, format="WAV", subtype="PCM_16")
         return len(samples) / rate

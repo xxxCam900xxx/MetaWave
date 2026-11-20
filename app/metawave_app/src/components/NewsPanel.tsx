@@ -3,6 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { ActivityIndicator, Linking, Modal, ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { NewsSourceItem, safeNewsUrl, SpeakerQueueNotice, SpeakerSchedule } from "../speakerQueue";
 import { playerStyles as styles } from "../styles/playerStyles";
+import ProgramSchedule from "./ProgramSchedule";
 
 type Reading = { title: string; body: string; source?: string; url?: string | null; isScript?: boolean };
 
@@ -10,8 +11,9 @@ const formatBroadcastTime = (value: string): string => new Intl.DateTimeFormat("
   timeZone: "Europe/Zurich", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
 }).format(new Date(value));
 
-function BroadcastSection({ title, time, badge, ready, script, items, empty, onRead }: {
+function BroadcastSection({ title, time, program, badge, ready, script, items, empty, onRead }: {
   title: string; time: string; badge?: string; ready?: boolean; script?: string | null;
+  program?: string;
   items?: NewsSourceItem[] | null; empty: string; onRead: (reading: Reading) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -22,6 +24,7 @@ function BroadcastSection({ title, time, badge, ready, script, items, empty, onR
         <View style={styles.newsSectionHeading}>
           <Text style={styles.newsPreviewSection}>{title}</Text>
           <Text style={styles.newsPreviewTime}>{time}</Text>
+          {!!program && <Text style={styles.programName}>{program}</Text>}
           {badge && <Text style={[styles.newsPreviewBadge, ready && styles.newsPreviewBadgeReady]}>{badge}</Text>}
         </View>
         <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={18} color="#C4BECD" />
@@ -97,7 +100,7 @@ export default function NewsPanel({ schedule, unavailable, notice, recentWarning
           <View style={styles.newsPreviewHeading}>
             <Text style={styles.newsPreviewEyebrow}>METAWAVE RADIO</Text>
             <Text style={styles.newsPreviewTitle}>MetaWave Update</Text>
-            <Text style={styles.newsPreviewSubtitle}>Mit Alex · KI-Moderation</Text>
+            <Text style={styles.newsPreviewSubtitle}>Nachrichten · KI-Moderation</Text>
           </View>
         </View>
         <ScrollView style={styles.newsPreviewContent} nestedScrollEnabled>
@@ -114,8 +117,11 @@ export default function NewsPanel({ schedule, unavailable, notice, recentWarning
           )}
           <BroadcastSection title="NÄCHSTE SENDUNG"
             time={nextTime && !unavailable && schedule?.enabled ? `${nextTime} Uhr · Schweizer Zeit` : "Termin noch nicht verfügbar"}
+            program={!unavailable && schedule?.enabled && schedule.next_program
+              ? `${schedule.next_program.name} · ${schedule.next_program.host}${schedule.next_program.prepared ? "" : " (geplant)"}` : undefined}
             badge={badge} ready={ready} script={ready ? schedule?.next_broadcast_script : null}
             items={ready ? schedule?.next_broadcast_items : null} empty={nextEmpty} onRead={openReading} />
+          <ProgramSchedule schedule={schedule} unavailable={unavailable} />
           <BroadcastSection title="ZULETZT GESENDET"
             time={schedule?.last_broadcast && !unavailable ? `${formatBroadcastTime(schedule.last_broadcast.target)} Uhr · Schweizer Zeit` : "Noch keine Sendung"}
             script={!unavailable ? schedule?.last_broadcast?.script : null}

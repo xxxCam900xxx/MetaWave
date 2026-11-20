@@ -5,11 +5,27 @@ export interface NewsSourceItem {
   url: string | null;
 }
 
+export interface ProgramSlot {
+  time: string;
+  format_id: string;
+  name: string;
+  host: string;
+  is_next: boolean;
+}
+
+export interface NextProgram extends Omit<ProgramSlot, "is_next"> {
+  date: string;
+  prepared: boolean;
+}
+
 export interface SpeakerSchedule {
   enabled: boolean;
   next_prepare?: string | null;
   next_broadcast: string | null;
   next_broadcast_state: string | null;
+  today_date?: string;
+  today_program?: ProgramSlot[];
+  next_program?: NextProgram | null;
   transition_state?: string | null;
   job?: { state: string; scheduled: boolean; target: string } | null;
   last_scheduled?: { state: string; target: string } | null;
@@ -49,6 +65,23 @@ function isCurrentJob(value: unknown): value is { state: string; target: string;
   return isRecord(value) && typeof value.scheduled === "boolean" && isJob(value);
 }
 
+function isProgram(value: unknown): value is Omit<ProgramSlot, "is_next"> {
+  return isRecord(value) && typeof value.time === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value.time) &&
+    typeof value.format_id === "string" && typeof value.name === "string" && typeof value.host === "string";
+}
+
+function isDate(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function isProgramSlot(value: unknown): value is ProgramSlot {
+  return isRecord(value) && typeof value.is_next === "boolean" && isProgram(value);
+}
+
+function isNextProgram(value: unknown): value is NextProgram {
+  return isRecord(value) && isDate(value.date) && typeof value.prepared === "boolean" && isProgram(value);
+}
+
 export function safeNewsUrl(value: string | null): string | null {
   if (!value || /[\u0000-\u0020\u007f]/.test(value)) return null;
   try {
@@ -67,6 +100,9 @@ export function parseSpeakerSchedule(value: unknown): SpeakerSchedule {
       !(value.transition_state == null || typeof value.transition_state === "string") ||
       !(typeof value.next_broadcast === "string" || value.next_broadcast === null) ||
       !(typeof value.next_broadcast_state === "string" || value.next_broadcast_state === null) ||
+      !(value.today_date === undefined || isDate(value.today_date)) ||
+      !(value.today_program === undefined || (Array.isArray(value.today_program) && value.today_program.every(isProgramSlot))) ||
+      !(value.next_program == null || isNextProgram(value.next_program)) ||
       !(typeof value.next_broadcast_script === "string" || value.next_broadcast_script === null || value.next_broadcast_script === undefined) ||
       !(value.next_broadcast_items == null || isNewsItems(value.next_broadcast_items)) ||
       !(value.last_broadcast == null || isBroadcast(value.last_broadcast))) {
@@ -77,6 +113,9 @@ export function parseSpeakerSchedule(value: unknown): SpeakerSchedule {
     ...(value.next_prepare === undefined ? {} : { next_prepare: value.next_prepare }),
     next_broadcast: value.next_broadcast,
     next_broadcast_state: value.next_broadcast_state,
+    ...(value.today_date === undefined ? {} : { today_date: value.today_date }),
+    ...(value.today_program === undefined ? {} : { today_program: value.today_program }),
+    ...(value.next_program === undefined ? {} : { next_program: value.next_program }),
     ...(value.transition_state === undefined ? {} : { transition_state: value.transition_state }),
     ...(value.job === undefined ? {} : { job: value.job }),
     ...(value.last_scheduled === undefined ? {} : { last_scheduled: value.last_scheduled }),

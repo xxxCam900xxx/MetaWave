@@ -187,6 +187,32 @@ export const settingsStyles = StyleSheet.create<any>({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  speakerFeed: {
+    marginTop: 10,
+  },
+  speakerFeedName: {
+    color: colors.textPrimary,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  speakerProgramRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: colors.backgroundDark,
+    borderRadius: 6,
+    padding: 10,
+    marginTop: 8,
+  },
+  speakerProgramNext: {
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+  },
+  speakerProgramTime: {
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: "700",
+  },
   scheduleSaveButton: {
     alignItems: "center",
     backgroundColor: colors.primary,

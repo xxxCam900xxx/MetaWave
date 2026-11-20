@@ -92,3 +92,14 @@ test("preserves source metadata and refuses unsafe article links", () => {
     assert.equal(safeNewsUrl(url), null);
   }
 });
+
+test("preserves today's program and the next prepared or future program", () => {
+  const slot = { time: "14:00", format_id: "realitaets_check", name: "Der Realitäts-Check", host: "Max", is_next: true };
+  const next = { time: "08:00", date: "2026-11-20", format_id: "deep_dive", name: "Deep Dive", host: "Elena", prepared: true };
+  const parsed = parseSpeakerSchedule({ ...schedule, today_date: "2026-11-19", today_program: [slot], next_program: next });
+  assert.deepEqual(parsed.today_program, [slot]);
+  assert.deepEqual(parsed.next_program, next);
+  assert.throws(() => parseSpeakerSchedule({ ...schedule, today_program: [{ ...slot, is_next: "yes" }] }), /Ungültiger/);
+  assert.throws(() => parseSpeakerSchedule({ ...schedule, next_program: { ...next, time: "25:00" } }), /Ungültiger/);
+  assert.equal(parseSpeakerSchedule({ ...schedule, next_program: null }).next_program, null);
+});

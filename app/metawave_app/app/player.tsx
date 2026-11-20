@@ -13,6 +13,7 @@ import { playerStyles as styles } from "../src/styles/playerStyles";
 import { parseSpeakerSchedule, recentSpeakerWarning, speakerQueueNotice, SpeakerQueueNotice, SpeakerSchedule } from "../src/speakerQueue";
 import { fadeMusicForSpeaker, fadeSpeakerTransition } from "../src/speakerFade";
 import NewsPanel from "../src/components/NewsPanel";
+import ProgramSchedule from "../src/components/ProgramSchedule";
 import { useVoting, VoteButtons } from "../src/components/Voting";
 
 interface StreamMeta {
@@ -938,6 +939,17 @@ export default function PlayerScreen() {
                 <Text style={[styles.speakerStatusTitle, speakerNotice.warning && styles.speakerStatusWarning]}>{speakerNotice.title}</Text>
               </View>
               <Text style={styles.speakerStatusDetail}>{speakerNotice.detail}</Text>
+              {!speakerUnavailable && speakerSchedule?.enabled && speakerSchedule.next_program && (
+                <Text style={styles.speakerStatusDetail}>
+                  {speakerSchedule.next_program.prepared ? "Als Nächstes" : "Geplant"}: {speakerSchedule.next_program.name} · {speakerSchedule.next_program.host}
+                </Text>
+              )}
+              <TouchableOpacity onPress={() => {
+                queueScrollRef.current?.scrollTo({ y: 0, animated: false });
+                expandSheet();
+              }} accessibilityRole="button" accessibilityLabel="Heutiges Programm anzeigen">
+                <Text style={styles.programLink}>Heutiges Programm ansehen ›</Text>
+              </TouchableOpacity>
               {!!recentSpeakerIssue && <Text style={styles.speakerStatusWarning}>{recentSpeakerIssue}</Text>}
             </View>
           )}
@@ -1018,6 +1030,7 @@ export default function PlayerScreen() {
               scrollEventThrottle={16}
             >
               <View style={{ paddingBottom: 24 }}>
+                <ProgramSchedule schedule={speakerSchedule} unavailable={speakerUnavailable} />
                 {queue.map((item, arrayIndex) => (
                   <QueueItemRow
                     key={`${item.index}-${item.song}`} item={item} arrayIndex={arrayIndex}

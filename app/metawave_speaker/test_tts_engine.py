@@ -70,6 +70,22 @@ class TTSEngineTests(unittest.TestCase):
         self.assertEqual(model.generate_custom_voice.call_count, 2)
         self.assertEqual(len(writer.call_args.args[1]), 150)
 
+    def test_dialog_uses_each_voice_and_inserts_a_pause(self):
+        torch = SimpleNamespace(float32="float32", cuda=SimpleNamespace(is_available=lambda: False))
+        model = MagicMock()
+        model.generate_custom_voice.side_effect = [([[0.1] * 100], 100), ([[0.2] * 100], 100)]
+        writer = MagicMock()
+        numpy = SimpleNamespace(concatenate=lambda chunks: sum(chunks, []),
+                                zeros=lambda size, dtype: [0] * size, float32="float32")
+        modules = {"torch": torch, "soundfile": SimpleNamespace(write=writer), "numpy": numpy,
+                   "qwen_tts": SimpleNamespace(Qwen3TTSModel=SimpleNamespace(from_pretrained=lambda *args, **kwargs: model))}
+        with patch.dict(sys.modules, modules), patch.dict(os.environ, {"SPEAKER_TTS_DEVICE": "cpu"}), \
+                patch("tts_engine._normalize", side_effect=lambda samples: samples):
+            duration = TTSEngine().render_segments([("Ryan", "Hallo."), ("Vivian", "Guten Tag.")], Path("test.wav"))
+        self.assertEqual([call.kwargs["speaker"] for call in model.generate_custom_voice.call_args_list], ["Ryan", "Vivian"])
+        self.assertEqual(duration, 2.35)
+        self.assertEqual(writer.call_args.args[1][100:135], [0] * 35)
+
     def test_normalization_boosts_quiet_speech_without_clipping(self):
         try:
             import numpy as np

@@ -100,19 +100,23 @@ class ApiTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
         self.paths = patch.multiple(main, DATA=root, AUDIO=root / "audio", JOBS=root / "jobs",
-                                    CONFIG=root / "config.json", LATEST=root / "latest.json")
+                                    CONFIG=root / "config.json", LATEST=root / "latest.json", HISTORY=root / "history.json")
         self.paths.start()
         self.feed = patch("main.fetch_feed", return_value=[NewsItem("Titel", "Inhalt", "Quelle", "https://example.org/artikel")])
         self.llm = patch("main.generate_script", return_value=f"Nachrichten. {OUTRO}")
         self.feed_mock = self.feed.start()
         self.llm.start()
+        self.weather = patch("main.fetch_weather", return_value={"ort": "Zürich"})
+        self.markets = patch("main.fetch_markets", return_value=[])
+        self.weather.start()
+        self.markets.start()
         self.tts = patch("main.TTSEngine.render", new=self.render)
         self.tts.start()
         self.client_context = TestClient(main.app)
         self.client = self.client_context.__enter__()
 
     @staticmethod
-    def render(engine, text, output):
+    def render(engine, text, output, speaker=None):
         with wave.open(str(output), "wb") as file:
             file.setnchannels(1)
             file.setsampwidth(2)
@@ -125,6 +129,8 @@ class ApiTests(unittest.TestCase):
         self.tts.stop()
         self.llm.stop()
         self.feed.stop()
+        self.weather.stop()
+        self.markets.stop()
         self.paths.stop()
         self.temp.cleanup()
 
@@ -169,6 +175,93 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(ack.json()["state"], "played")
         self.assertEqual(main.read_json(path)["state"], "played")
 
+    def test_fixed_feeds_reject_changes_and_migrate_stored_config(self):
+        config = self.client.get("/config").json()
+        self.assertEqual(config["rss_urls"], main.DEFAULT_FEEDS)
+        changed = dict(config, rss_urls=["https://example.org/rss"] * 3)
+        response = self.client.post("/config", json=changed)
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(self.client.get("/config").json(), config)
+
+        main.write_json(main.CONFIG, dict(changed, enabled=True, times=["12:00"]))
+        migrated = main.Speaker().config
+        self.assertEqual(migrated.rss_urls, main.DEFAULT_FEEDS)
+        self.assertTrue(migrated.enabled)
+        self.assertEqual(migrated.times, ["12:00"])
+        self.assertEqual(main.read_json(main.CONFIG), migrated.model_dump())
+
+    def test_today_program_uses_swiss_date_saved_plan_and_enabled_times(self):
+        config = self.client.get("/config").json()
+        config["enabled"] = True
+        config["times"] = ["08:00", "12:00", "14:00"]
+        config["week_plan"]["friday"]["12:00"] = "deep_dive"
+        self.assertEqual(self.client.post("/config", json=config).status_code, 200)
+        with patch("main.datetime", wraps=datetime) as clock:
+            clock.now.return_value = datetime(2026, 11, 20, 10, 30, tzinfo=ZONE)
+            status = self.client.get("/status").json()
+        self.assertEqual(status["today_date"], "2026-11-20")
+        self.assertEqual(status["next_program"], {
+            "date": "2026-11-20", "time": "12:00", "format_id": "deep_dive",
+            "name": "Deep Dive: Warum eigentlich?", "host": "Elena", "prepared": False,
+        })
+        self.assertEqual(
+            [(entry["time"], entry["format_id"], entry["host"], entry["is_next"]) for entry in status["today_program"]],
+            [("08:00", "morgen_kompass", "Lukas", False),
+             ("12:00", "deep_dive", "Elena", True),
+             ("14:00", "realitaets_check", "Max", False)],
+        )
+        config["enabled"] = False
+        self.assertEqual(self.client.post("/config", json=config).status_code, 200)
+        with patch("main.datetime", wraps=datetime) as clock:
+            clock.now.return_value = datetime(2026, 11, 20, 23, 30, tzinfo=ZONE).astimezone(UTC)
+            status = self.client.get("/status").json()
+        self.assertEqual(status["today_date"], "2026-11-20")
+        self.assertIsNone(status["next_program"])
+        self.assertFalse(any(entry["is_next"] for entry in status["today_program"]))
+
+    def test_next_program_can_be_tomorrow_and_shows_prepared_fallback(self):
+        config = self.client.get("/config").json()
+        config.update(enabled=True, times=["08:00"])
+        self.assertEqual(self.client.post("/config", json=config).status_code, 200)
+        now = datetime(2026, 11, 20, 23, 30, tzinfo=ZONE)
+        target = datetime(2026, 11, 21, 8, 0, tzinfo=ZONE).astimezone(UTC)
+        main.write_json(main.job_path(target, main.speaker.config), {
+            "state": "ready", "target": target.isoformat(), "format_id": "klugscheisser_60s",
+        })
+        with patch("main.datetime", wraps=datetime) as clock:
+            clock.now.return_value = now
+            status = self.client.get("/status").json()
+        self.assertEqual(status["next_program"], {
+            "date": "2026-11-21", "time": "08:00", "format_id": "klugscheisser_60s",
+            "name": "60 Sekunden Klugscheisser", "host": "Max", "prepared": True,
+        })
+        self.assertFalse(any(entry["is_next"] for entry in status["today_program"]))
+
+    def test_only_confirmed_playout_updates_history(self):
+        target = datetime.now(UTC).replace(second=0, microsecond=0)
+        path = main.job_path(target, main.speaker.config)
+        filename = "speaker-" + "a" * 32 + ".wav"
+        item = {"title": "Ein Thema", "summary": "Details", "source": "Quelle", "url": "https://example.org/a"}
+        main.write_json(path, {"state": "claimed", "target": target.isoformat(), "filename": filename, "items": [item]})
+        self.assertFalse(main.HISTORY.exists())
+        payload = {"key": path.stem, "filename": filename, "played": True}
+        self.assertEqual(self.client.post("/internal/ack", json=payload).status_code, 200)
+        self.assertEqual(main.unseen([NewsItem(**item)], target, main.HISTORY), [])
+        self.assertEqual(self.client.post("/internal/ack", json=payload).status_code, 200)
+
+    def test_playout_history_uses_actual_swiss_day_after_midnight(self):
+        target = datetime(2026, 11, 23, 23, 59, tzinfo=ZONE)
+        played = datetime(2026, 11, 24, 0, 5, tzinfo=ZONE)
+        path = main.job_path(target, main.speaker.config)
+        filename = "speaker-" + "a" * 32 + ".wav"
+        item = {"title": "Ein Thema", "summary": "Details", "source": "Quelle", "url": "https://example.org/a"}
+        main.write_json(path, {"state": "claimed", "target": target.isoformat(), "filename": filename, "items": [item]})
+        with patch("main.datetime", wraps=datetime) as clock:
+            clock.now.return_value = played
+            response = self.client.post("/internal/ack", json={"key": path.stem, "filename": filename, "played": True})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(main.unseen([NewsItem(**item)], played, main.HISTORY), [])
+
     def test_song_transition_renders_current_titles_around_the_prepared_bulletin(self):
         config = self.client.get("/config").json()
         config["enabled"] = True
@@ -180,7 +273,7 @@ class ApiTests(unittest.TestCase):
         main.write_json(path, {"state": "claimed", "filename": filename, "duration": 60})
         spoken = []
 
-        def render(engine, text, output):
+        def render(engine, text, output, speaker=None):
             spoken.append(text)
             self.render(engine, text, output)
 
@@ -193,7 +286,7 @@ class ApiTests(unittest.TestCase):
                 time.sleep(0.02)
                 response = self.client.post("/internal/transition", json=payload).json()
         self.assertEqual(response["state"], "ready", response)
-        self.assertEqual(spoken, ["Das war Erster Song. Kommen wir zu den Nachrichten.",
+        self.assertEqual(spoken, ["Das war Erster Song. Kommen wir zum Programm.",
                                   "Jetzt kommt Zweiter Song. Danke fürs Einschalten!"])
         with wave.open(str(main.AUDIO / response["filename"]), "rb") as audio:
             self.assertEqual(audio.getnframes() / audio.getframerate(), 181)
@@ -320,7 +413,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/audio/latest").status_code, 404)
 
     def test_too_short_audio_fails_instead_of_being_published(self):
-        def short_render(engine, text, output):
+        def short_render(engine, text, output, speaker=None):
             with wave.open(str(output), "wb") as file:
                 file.setnchannels(1)
                 file.setsampwidth(2)
@@ -329,24 +422,24 @@ class ApiTests(unittest.TestCase):
             return 0.1
 
         with patch.object(main.TTSEngine, "render", new=short_render):
-            with self.assertRaisesRegex(ValueError, "60 bis 180"):
+            with self.assertRaisesRegex(ValueError, "10 bis 180"):
                 main.speaker.prepare_sync(main.speaker.config, datetime.now(UTC), "speaker-test.wav")
         self.assertFalse((main.AUDIO / "speaker-test.wav").exists())
 
     def test_too_long_audio_fails_instead_of_being_published(self):
         with patch("main.add_jingles", return_value=180.01):
-            with self.assertRaisesRegex(ValueError, "60 bis 180"):
+            with self.assertRaisesRegex(ValueError, "10 bis 180"):
                 main.speaker.prepare_sync(main.speaker.config, datetime.now(UTC), "speaker-test.wav")
         self.assertFalse((main.AUDIO / "speaker-test.wav").exists())
 
-    def test_all_available_feed_items_are_interleaved_for_longer_bulletins(self):
+    def test_topic_limit_keeps_interleaved_feed_order(self):
         feeds = [[NewsItem(f"{feed}-{index}", "Zusammenfassung", "Quelle", f"https://example.org/{feed}-{index}") for index in range(count)]
                  for feed, count in enumerate((3, 1, 2))]
         self.feed_mock.side_effect = feeds
         with patch("main.generate_script", return_value="Text") as generate:
-            result = main.speaker.prepare_sync(main.speaker.config, datetime.now(UTC), "speaker-test.wav")
+            result = main.speaker.prepare_sync(main.speaker.config, datetime(2026, 11, 23, 8, tzinfo=ZONE), "speaker-test.wav")
         self.assertEqual([item.title for item in generate.call_args.args[0]],
-                         ["0-0", "1-0", "2-0", "0-1", "2-1", "0-2"])
+                         ["0-0", "1-0", "2-0"])
         self.assertEqual(result["items"][0], {"title": "0-0", "summary": "Zusammenfassung",
                                              "source": "Quelle", "url": "https://example.org/0-0"})
 
@@ -424,7 +517,7 @@ class ApiTests(unittest.TestCase):
         started = threading.Event()
         release = threading.Event()
 
-        def slow_render(engine, text, output):
+        def slow_render(engine, text, output, speaker=None):
             started.set()
             if not release.wait(5):
                 raise TimeoutError("test renderer timed out")

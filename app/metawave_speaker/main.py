@@ -1,6 +1,7 @@
 """MetaWave Speaker API and preparation scheduler."""
 
 import asyncio
+import copy
 import hashlib
 import json
 import logging
@@ -14,18 +15,22 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from feeds import fetch_feed
 from jingle import add_jingles
 from llm_client import generate_script
+from history import mark_played, unseen
+from markets import DEFAULT_WATCHLIST, fetch_markets
+from program import DEFAULTS, WEEKDAYS, planned_format, select_program
 from scheduler import ZONE, broadcasts, next_events
+from speech import clean
 from tts_engine import TTSEngine
+from weather import fetch_weather
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 log = logging.getLogger("speaker")
@@ -35,6 +40,7 @@ AUDIO = DATA / "audio"
 JOBS = DATA / "jobs"
 CONFIG = DATA / "config.json"
 LATEST = DATA / "latest.json"
+HISTORY = DATA / "history.json"
 
 DEFAULT_FEEDS = [
     "https://www.heise.de/rss/heise-atom.xml",
@@ -43,10 +49,65 @@ DEFAULT_FEEDS = [
 ]
 
 
+class Host(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+    voice: str = Field(min_length=1, max_length=50)
+    character: str = Field(min_length=1, max_length=200)
+
+
+class Location(BaseModel):
+    name: str = Field(default="Zürich", min_length=1, max_length=100)
+    latitude: float = Field(default=47.3769, ge=-90, le=90)
+    longitude: float = Field(default=8.5417, ge=-180, le=180)
+
+
+class MarketSymbol(BaseModel):
+    symbol: str = Field(min_length=1, max_length=30, pattern=r"^[A-Za-z0-9.^=-]+$")
+    name: str = Field(min_length=1, max_length=100)
+
+
 class Config(BaseModel):
     enabled: bool = False
     times: list[str] = ["08:00", "10:00", "14:00", "16:00"]
-    rss_urls: list[str] = DEFAULT_FEEDS
+    rss_urls: list[str] = Field(default_factory=lambda: list(DEFAULT_FEEDS))
+    week_plan: dict[str, dict[str, str]] = Field(default_factory=lambda: copy.deepcopy(DEFAULTS["week_plan"]))
+    hosts: dict[str, Host] = Field(default_factory=lambda: {key: Host(**value) for key, value in DEFAULTS["hosts"].items()})
+    weather_location: Location = Field(default_factory=Location)
+    watchlist: list[MarketSymbol] = Field(default_factory=lambda: [MarketSymbol(**entry) for entry in DEFAULT_WATCHLIST], max_length=12)
+    dialog_formats: list[str] = Field(default_factory=list)
+    cohost: str = "elena"
+
+    @field_validator("week_plan")
+    @classmethod
+    def valid_plan(cls, value):
+        if set(value) != set(WEEKDAYS):
+            raise ValueError("Der Wochenplan benötigt alle sieben Wochentage")
+        for slots in value.values():
+            if any(not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", slot)
+                   or format_id not in DEFAULTS["formats"] for slot, format_id in slots.items()):
+                raise ValueError("Ungültige Sendezeit oder Format-ID im Wochenplan")
+        return value
+
+    @field_validator("hosts")
+    @classmethod
+    def valid_hosts(cls, value):
+        if set(value) != set(DEFAULTS["hosts"]):
+            raise ValueError("Das Team benötigt die Moderatoren lukas, elena und max")
+        return value
+
+    @field_validator("dialog_formats")
+    @classmethod
+    def valid_dialog_formats(cls, value):
+        if len(set(value)) != len(value) or any(item not in DEFAULTS["formats"] for item in value):
+            raise ValueError("Ungültige Dialogformate")
+        return value
+
+    @field_validator("cohost")
+    @classmethod
+    def valid_cohost(cls, value):
+        if value not in DEFAULTS["hosts"]:
+            raise ValueError("Ungültiger Co-Moderator")
+        return value
 
     @field_validator("times")
     @classmethod
@@ -60,17 +121,8 @@ class Config(BaseModel):
     @field_validator("rss_urls")
     @classmethod
     def valid_urls(cls, values: list[str]) -> list[str]:
-        if len(values) != 3 or len(set(values)) != 3:
-            raise ValueError("Genau drei verschiedene RSS-URLs sind erforderlich")
-        for value in values:
-            parsed = urlsplit(value)
-            if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
-                raise ValueError("RSS-URLs müssen öffentliche HTTP(S)-URLs sein")
-            try:
-                if parsed.port and parsed.port not in (80, 443):
-                    raise ValueError("RSS-URLs müssen Port 80 oder 443 verwenden")
-            except ValueError as exc:
-                raise ValueError("Ungültiger RSS-Port") from exc
+        if values != DEFAULT_FEEDS:
+            raise ValueError("Die RSS-Quellen sind fest vorgegeben und können nicht geändert werden")
         return values
 
 
@@ -97,7 +149,14 @@ class Speaker:
         AUDIO.mkdir(parents=True, exist_ok=True)
         JOBS.mkdir(parents=True, exist_ok=True)
         if CONFIG.exists():
-            self.config = Config.model_validate(read_json(CONFIG))
+            stored = read_json(CONFIG)
+            feeds_changed = stored.get("rss_urls", DEFAULT_FEEDS) != DEFAULT_FEEDS
+            if feeds_changed:
+                log.warning("Gespeicherte RSS-Quellen werden durch die festen Quellen ersetzt")
+                stored["rss_urls"] = list(DEFAULT_FEEDS)
+            self.config = Config.model_validate(stored)
+            if feeds_changed:
+                write_json(CONFIG, self.config.model_dump())
         else:
             self.config = Config()
             write_json(CONFIG, self.config.model_dump())
@@ -113,6 +172,12 @@ class Speaker:
             if record.get("state") == "preparing":
                 record.update(state="failed", error="Vorbereitung durch Neustart unterbrochen")
                 write_json(path, record)
+            elif record.get("state") == "played" and record.get("items") and record.get("target"):
+                target = datetime.fromisoformat(record.get("played_at") or record["target"])
+                if target.tzinfo is None or target.utcoffset() is None:
+                    raise ValueError(f"Sendezeit in {path.name} hat keine Zeitzone")
+                if target.astimezone(ZONE).date() == datetime.now(ZONE).date():
+                    mark_played(record["items"], target, HISTORY)
         self.prune()
         self.next_prune = time.monotonic() + 60
 
@@ -201,36 +266,69 @@ class Speaker:
                 log.exception("Could not clean latest speaker reference")
 
     def prepare_sync(self, config: Config, target: datetime, filename: str) -> dict:
-        feeds = [fetch_feed(url) for url in config.rss_urls]
+        feeds = []
+        feed_errors = []
+        for url in config.rss_urls:
+            try:
+                feeds.append(fetch_feed(url))
+            except (OSError, ValueError, RuntimeError) as exc:
+                log.warning("RSS-Feed nicht verfügbar: %s", exc)
+                feed_errors.append(str(exc))
+        if not feeds:
+            raise RuntimeError("Alle RSS-Feeds sind nicht erreichbar: " + "; ".join(feed_errors))
         items = [feed[index] for index in range(3) for feed in feeds if index < len(feed)]
+        items = unseen(items, target, HISTORY)
+        format_id, program, items = select_program(target, config.week_plan, items)
+        host = config.hosts[program["host"]]
+        cohost_key = config.cohost if config.cohost != program["host"] else (
+            "lukas" if program["host"] != "lukas" else "elena"
+        )
+        cohost = config.hosts[cohost_key]
+        weather = None
+        if "weather" in program["focus"]:
+            try:
+                location = config.weather_location
+                weather = fetch_weather(location.latitude, location.longitude, location.name, target)
+            except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+                log.warning("Wetter nicht verfügbar: %s", exc)
+        markets = fetch_markets([entry.model_dump() for entry in config.watchlist]) if "markets" in program["focus"] else []
+        dialog = format_id in config.dialog_formats
         script = generate_script(
             items, target.astimezone(ZONE),
             ollama_url=os.getenv("OLLAMA_URL", "http://ollama:11434"),
             model=os.getenv("OLLAMA_MODEL", "qwen2.5:3b"),
             timeout=float(os.getenv("OLLAMA_TIMEOUT", "600")),
+            program=program, host=host.model_dump(), cohost=cohost.model_dump(),
+            weather=weather, markets=markets, dialog=dialog,
         )
         temporary = AUDIO / (filename + ".tmp")
         try:
             with self.tts_lock:
-                self.tts.render(script, temporary)
+                if dialog:
+                    segments = [(host.voice if line.startswith("[HOST_A]:") else cohost.voice,
+                                 line.split(":", 1)[1].strip()) for line in script.splitlines()]
+                    self.tts.render_segments(segments, temporary)
+                else:
+                    self.tts.render(script, temporary, speaker=host.voice)
             duration = add_jingles(temporary)
-            if not 60 <= duration <= 180:
-                raise ValueError(f"Sprecherbeitrag dauert {duration:.1f} Sekunden; benötigt werden 60 bis 180 Sekunden")
+            if not 10 <= duration <= 180:
+                raise ValueError(f"Sprecherbeitrag dauert {duration:.1f} Sekunden; benötigt werden 10 bis 180 Sekunden")
             os.replace(temporary, AUDIO / filename)
         finally:
             temporary.unlink(missing_ok=True)
         return {"filename": filename, "duration": duration, "script": script,
+                "format_id": format_id, "format_name": program["name"], "host": host.name, "voice": host.voice,
                 "items": [asdict(item) for item in items]}
 
-    def render_transition(self, source: str, previous: str, following: str) -> dict:
+    def render_transition(self, source: str, previous: str, following: str, voice: str | None = None) -> dict:
         filename = f"speaker-{uuid.uuid4().hex}.wav"
         temporary = AUDIO / (filename + ".tmp")
         intro = AUDIO / (filename + ".intro.tmp")
         outro = AUDIO / (filename + ".outro.tmp")
         try:
             with self.tts_lock:
-                self.tts.render(f"Das war {previous}. Kommen wir zu den Nachrichten.", intro)
-                self.tts.render(f"Jetzt kommt {following}. Danke fürs Einschalten!", outro)
+                self.tts.render(clean(f"Das war {previous}. Kommen wir zum Programm."), intro, speaker=voice)
+                self.tts.render(clean(f"Jetzt kommt {following}. Danke fürs Einschalten!"), outro, speaker=voice)
             parts = []
             params = None
             for path in (intro, AUDIO / source, outro):
@@ -265,7 +363,7 @@ class Speaker:
         record = read_json(path)
         if record.get("filename") != source or record.get("state") not in ("ready", "claimed", "uncertain"):
             return {"state": "failed", "error": "Sendung ist nicht für die Übergabe bereit"}
-        signature = (key, source, previous, following)
+        signature = (key, source, previous, following, record.get("voice"))
         if self.transition and self.transition["signature"] == signature:
             return {k: v for k, v in self.transition.items() if k != "signature"}
         if (self.transition_task and not self.transition_task.done()) or (self.task and not self.task.done()):
@@ -274,9 +372,9 @@ class Speaker:
         self.transition_task = asyncio.create_task(self.run_transition(signature))
         return {"state": "preparing"}
 
-    async def run_transition(self, signature: tuple[str, str, str, str]) -> None:
+    async def run_transition(self, signature: tuple[str, str, str, str, str | None]) -> None:
         try:
-            result = await asyncio.to_thread(self.render_transition, signature[1], signature[2], signature[3])
+            result = await asyncio.to_thread(self.render_transition, signature[1], signature[2], signature[3], signature[4])
             self.transition.update(result, state="ready")
         except Exception as exc:
             log.exception("Speaker transition preparation failed")
@@ -443,12 +541,43 @@ async def status():
                 air = target
                 next_record = record
                 break
+    local_day = now.astimezone(ZONE).date()
+    next_program = None
+    if air:
+        format_id = planned_format(air, speaker.config.week_plan)
+        if next_record and next_record.get("state") in ("ready", "claimed"):
+            format_id = next_record.get("format_id") or format_id
+        program = DEFAULTS["formats"][format_id]
+        next_program = {
+            "date": air.astimezone(ZONE).date().isoformat(),
+            "time": air.astimezone(ZONE).strftime("%H:%M"),
+            "format_id": format_id,
+            "name": program["name"],
+            "host": speaker.config.hosts[program["host"]].name,
+            "prepared": bool(next_record and next_record.get("state") in ("ready", "claimed")),
+        }
+    today_program = []
+    for target in broadcasts(speaker.config.times, now, days=1):
+        format_id = planned_format(target, speaker.config.week_plan)
+        program = DEFAULTS["formats"][format_id]
+        today_program.append({
+            "time": target.astimezone(ZONE).strftime("%H:%M"),
+            "format_id": format_id,
+            "name": program["name"],
+            "host": speaker.config.hosts[program["host"]].name,
+            "is_next": target == air,
+        })
     return {
         "enabled": speaker.config.enabled,
         "timezone": str(ZONE),
         "next_prepare": prepare.isoformat() if prepare else None,
         "next_broadcast": air.isoformat() if air else None,
+        "next_format": planned_format(air, speaker.config.week_plan) if air else None,
+        "next_prepared_format": next_record.get("format_id") if next_record else None,
         "next_broadcast_state": next_record.get("state") if next_record else None,
+        "next_program": next_program,
+        "today_date": local_day.isoformat(),
+        "today_program": today_program,
         "next_broadcast_script": next_record.get("script") if next_record and next_record.get("state") in ("ready", "claimed") else None,
         "next_broadcast_items": next_record.get("items") if next_record and next_record.get("state") in ("ready", "claimed") else None,
         "job": speaker.current,
@@ -563,6 +692,11 @@ async def acknowledge(request: AckRequest):
         return {"state": outcome}
     if record.get("state") not in ("claimed", "uncertain"):
         raise HTTPException(409, "Beitrag ist nicht zur Bestätigung freigegeben")
+    if request.played:
+        played_at = datetime.now(UTC)
+        if record.get("items"):
+            mark_played(record["items"], played_at, HISTORY)
+        record["played_at"] = played_at.isoformat()
     record["state"] = outcome
     if not request.played:
         record["error"] = "Radio konnte den Beitrag nicht starten"

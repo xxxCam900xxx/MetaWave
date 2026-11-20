@@ -6,7 +6,15 @@ import { settingsStyles as styles } from "../styles/settingsStyles";
 
 type SpeakerConfig = { enabled: boolean; times: string[]; rss_urls: string[] };
 type SpeakerJob = { id: string; state: string; error?: string };
-type SpeakerStatus = { next_prepare: string | null; next_broadcast: string | null; job: SpeakerJob | null; latest: SpeakerJob | null; last_scheduled: { state: string; error?: string } | null };
+type SpeakerStatus = {
+  next_prepare: string | null;
+  next_broadcast: string | null;
+  today_date: string;
+  today_program: { time: string; format_id: string; name: string; host: string; is_next: boolean }[];
+  job: SpeakerJob | null;
+  latest: SpeakerJob | null;
+  last_scheduled: { state: string; error?: string } | null;
+};
 
 export default function SpeakerSettings({ token, isDesktop }: { token: string; isDesktop: boolean }) {
   const [config, setConfig] = useState<SpeakerConfig | null>(null);
@@ -200,14 +208,37 @@ export default function SpeakerSettings({ token, isDesktop }: { token: string; i
           </View>
           <Text style={[styles.timeLabel, { marginTop: 16 }]}>Sendezeiten (HH:MM, durch Kommas getrennt)</Text>
           <TextInput value={times} onChangeText={setTimes} style={styles.timeInput} editable={!busy} />
-          {["IT", "Schweiz", "Zürich"].map((label, index) => (
-            <View key={label}>
-              <Text style={[styles.timeLabel, { marginTop: 12 }]}>{label}: RSS-URL</Text>
-              <TextInput value={config.rss_urls[index]} editable={!busy} autoCapitalize="none" autoCorrect={false}
-                style={styles.timeInput}
-                onChangeText={value => setConfig({ ...config, rss_urls: config.rss_urls.map((url, i) => i === index ? value : url) })} />
+          <Text style={[styles.settingLabel, { marginTop: 20 }]}>Feste Nachrichtenquellen</Text>
+          <Text style={styles.settingDescription}>Diese drei RSS-Feeds sind fest vorgegeben und können nicht geändert werden.</Text>
+          {["heise online · IT", "SRF · Schweiz", "Google News · Zürich"].map((label, index) => (
+            <View key={label} style={styles.speakerFeed}>
+              <Text style={styles.speakerFeedName}>{label}</Text>
+              <Text style={styles.settingDescription} selectable>{config.rss_urls[index]}</Text>
             </View>
           ))}
+          <Text style={[styles.settingLabel, { marginTop: 20 }]}>Heutiges Programm</Text>
+          {status?.today_program ? (
+            <>
+              <Text style={styles.settingDescription}>
+                {status.today_date.split("-").reverse().join(".")} · Schweizer Zeit{config.enabled ? "" : " · Speaker deaktiviert"}
+              </Text>
+              {status.today_program.map(program => (
+                <View key={program.time} style={[styles.speakerProgramRow, program.is_next && styles.speakerProgramNext]}>
+                  <Text style={styles.speakerProgramTime}>{program.time}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.speakerFeedName}>{program.name}</Text>
+                    <Text style={styles.settingDescription}>{program.host}{program.is_next ? " · Als Nächstes" : ""}</Text>
+                  </View>
+                </View>
+              ))}
+              {status.today_program.length === 0 && (
+                <Text style={[styles.settingDescription, { marginTop: 8 }]}>Heute gibt es keine gültigen Sendezeiten.</Text>
+              )}
+              <Text style={[styles.settingDescription, { marginTop: 8 }]}>
+                Geplanter Ablauf; bei fehlenden passenden Meldungen kann die Feierabend-Lounge übernehmen.
+              </Text>
+            </>
+          ) : <Text style={styles.settingDescription}>Programm wird geladen…</Text>}
           <TouchableOpacity style={[styles.scheduleSaveButton, busy && styles.scheduleSaveButtonDisabled]}
             disabled={busy} onPress={() => saveSettings(config.enabled)}>
             <Text style={styles.scheduleSaveButtonText}>Speaker speichern</Text>
