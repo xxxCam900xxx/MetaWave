@@ -14,6 +14,8 @@ import { speakerRouter, startSpeakerBridge } from "./core/SpeakerBridge.js";
 import { radio } from "./core/RadioEngine.js";
 import { votingStore } from "./core/VotingStore.js";
 import { createVotingRouter } from "./core/VotingRouter.js";
+import { getAllPlaylists } from "./playlist/PlaylistLogic.js";
+import fs from "node:fs/promises";
 
 // Import Websockets
 import { setupWebSocket } from "./websocket/WebsocketLogic.js";
@@ -65,7 +67,7 @@ app.use(
          console.warn("CORS rejected origin:", origin);
          return callback(new Error("Not allowed by CORS"));
       },
-      methods: ["GET", "POST", "OPTIONS"],
+      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization"],
       credentials: true,
    })
@@ -103,6 +105,34 @@ setupWebSocket(server);
 const PORT = 8000;
 server.listen(PORT, async () => {
    startSpeakerBridge(radio);
+   const refreshPlaylistProgram = async () => {
+      try {
+         const programs = await getAllPlaylists();
+         let memberships = {};
+         if (programs.some(p => p.is_main && p.is_active)) {
+            memberships = JSON.parse(await fs.readFile("/songs/playlist_membership.json", "utf8"));
+            if (!memberships || Array.isArray(memberships) || typeof memberships !== "object" ||
+                Object.values(memberships).some(ids => !Array.isArray(ids) || ids.some(id => typeof id !== "string"))) {
+               throw new Error("Ungültige Playlist-Zuordnungen");
+            }
+         }
+         if (!radio.updatePlaylistProgram(programs, memberships) && programs.some(p => p.is_main && p.is_active) &&
+             !radio.pendingSpeaker && !radio.speakerEpisode) {
+            console.warn("[Playlist] Hauptplaylist noch nicht synchronisiert oder ohne abspielbare Titel.");
+         }
+      } catch (error) {
+         console.error("[Playlist] Sendeplan konnte nicht aktualisiert werden:", error.message);
+         if (radio.playlistPrograms && radio.playlistMemberships) {
+            try {
+               radio.updatePlaylistProgram(radio.playlistPrograms, radio.playlistMemberships);
+            } catch (cachedError) {
+               console.error("[Playlist] Gespeicherter Sendeplan konnte nicht angewendet werden:", cachedError.message);
+            }
+         }
+      }
+   };
+   refreshPlaylistProgram();
+   setInterval(refreshPlaylistProgram, 15_000);
    console.log(`MetaWave Live Radio läuft auf Port ${PORT}`);
    console.log(`Swagger UI: http://localhost:${PORT}/swagger`);
 

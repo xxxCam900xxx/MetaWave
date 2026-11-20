@@ -14,6 +14,7 @@ MetaWave löst das Problem des gemeinsamen Musik-Streamings ohne Werbung und mit
 - **Synchrones Hören** mit mehreren Teilnehmern
 - **Gemeinsame Kontrolle** (Skip, Shuffle, Queue Management)
 - **Voting und Musikstatistiken** mit Ranglisten und Künstleranteilen
+- **Playlist-Sendeplan** mit Hauptplaylist und jährlich wiederkehrenden Saison-Zeiträumen
 - **Sichere Authentifizierung** mit monatlichen Wave-Tokens
 - **URL-basierter Login** für direkten Zugriff ohne manuelle Token-Eingabe
 - **Cross-Platform Client** (Web, iOS, Android via Expo)

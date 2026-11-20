@@ -156,6 +156,46 @@ Bei einem anderen Fehlercode helfen die Logs im Abschnitt unten.
 4. Starte die Wiedergabe im Player. Die Synchronisierung kann nicht mehr in
    aktiven Playlists enthaltene heruntergeladene Songs lokal bereinigen.
 
+#### Hauptplaylist und jährliche Saison-Playlists
+
+Im **Playlist Manager** kannst du bei einer Playlist **Als Hauptplaylist
+wählen**. Sie bildet die musikalische Grundlage. Bei weiteren Playlists
+öffnest du **Zeitraum einstellen** und gibst das Anfangs- und Enddatum als
+`MM-TT` und die täglichen Uhrzeiten als `HH:MM` ein. Beispiel für Weihnachten:
+Datum `11-25` bis `12-26`, täglich `08:00` bis `18:00`. Beide Daten zählen
+mit; die tägliche Endzeit ist ausgeschlossen. Gleiche Uhrzeiten, etwa `00:00`
+bis `00:00`, bedeuten ganztägig. Die Zeiträume wiederholen sich jedes Jahr in
+`Europe/Zurich` und können über den Jahreswechsel gehen, etwa `12-01` bis
+`01-07`. Ein tägliches Zeitfenster über Mitternacht zählt zum Tag seines
+Beginns. Ein 29. Februar liegt in Nicht-Schaltjahren zwischen dem 28. Februar
+und dem 1. März.
+
+Aktive saisonale Playlists werden während ihres Zeitraums zugemischt: ungefähr
+ein Titel nach jeweils drei Titeln aus der Hauptplaylist, soweit genügend
+unterschiedliche saisonale Titel verfügbar sind. Überschneiden sich Zeiträume,
+werden die passenden saisonalen Titel gemeinsam gemischt. Titel, die auch in
+der Hauptplaylist stehen, können das ganze Jahr laufen. Ohne Hauptplaylist
+bleibt das bisherige Verhalten erhalten; Playlists ohne eingestellten Zeitraum
+werden nach Auswahl einer Hauptplaylist nicht zugemischt.
+
+Füge beispielsweise die Weihnachtsplaylist über ihre YouTube-URL hinzu, stelle
+ihren Zeitraum ein und klicke **Jetzt synchronisieren**. Auch ausserhalb des
+Zeitraums müssen saisonale Playlists aktiv bleiben, damit der Downloader ihre
+Titel synchronisiert. Die automatische Umstellung benötigt laufende Radio- und
+Datenbankdienste und erfolgt nach kurzer Prüfzeit, ohne den aktuellen Song
+oder eine laufende Speaker-Übergabe abzubrechen. Wenn die Hauptplaylist noch
+nicht synchronisiert ist oder keine abspielbaren Titel enthält, bleibt die
+bisherige Queue bestehen; prüfe den Synchronisierungsstatus und die Logs.
+
+Neue und geänderte YouTube-Playlists manuell synchronisieren. Der Downloader
+synchronisiert zusätzlich beim Start; es gibt derzeit keinen monatlichen
+Automatiklauf. Leere oder nicht erreichbare Playlists und fehlgeschlagene
+Downloads brechen den Lauf mit einem Fehler ab, bevor Songs bereinigt werden.
+Spotify-Playlists können in diesem Radio nicht importiert oder abgespielt
+werden: Die [Spotify Developer Policy](https://developer.spotify.com/policy)
+verbietet unter anderem ein gemeinsames nicht-interaktives Radio und die
+Integration mit Inhalten anderer Dienste.
+
 ### 5. KI-Speaker testen
 
 Öffne **Einstellungen → Speaker**, prüfe die RSS-Feeds und klicke **Jetzt

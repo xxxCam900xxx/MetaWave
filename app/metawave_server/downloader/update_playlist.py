@@ -216,6 +216,8 @@ def download_in_batches(video_urls):
             time.sleep(BATCH_DELAY_SECONDS)
 
     print(f"[downloader] Fertig. {downloaded}/{total} Videos verarbeitet.")
+    if downloaded != total:
+        raise RuntimeError(f"{total - downloaded} von {total} Downloads fehlgeschlagen")
 
 
 def analyze_lufs(mp3_path: Path):

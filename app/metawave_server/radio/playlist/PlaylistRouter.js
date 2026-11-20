@@ -5,6 +5,7 @@ import {
   addPlaylist,
   updatePlaylist,
   deletePlaylist,
+  setPlaylistProgram,
 } from "./PlaylistLogic.js";
 
 const router = express.Router();
@@ -34,10 +35,29 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "name and url are required" });
     if (err.message === "INVALID_URL")
       return res.status(400).json({ error: "Invalid URL format" });
+    if (err.message === "SPOTIFY_UNSUPPORTED")
+      return res.status(400).json({ error: "Spotify-Playlists werden für die Radioausspielung nicht unterstützt." });
     if (err.message === "PLAYLIST_EXISTS")
       return res.status(409).json({ error: "A playlist with this URL already exists" });
     console.error("PlaylistRouter POST /:", err);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// PUT /playlist/:id
+router.put("/:id/program", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: "Ungültige Playlist-ID." });
+  try {
+    await setPlaylistProgram(id, req.body || {});
+    res.json({ status: 200 });
+  } catch (err) {
+    if (err.message === "NOT_FOUND") return res.status(404).json({ error: "Playlist nicht gefunden." });
+    if (err.message === "INVALID_PROGRAM") return res.status(400).json({ error: "Ungültiger Zeitraum oder Uhrzeit." });
+    if (err.message === "MAIN_MUST_BE_ACTIVE")
+      return res.status(409).json({ error: "Wähle zuerst eine andere Hauptplaylist." });
+    console.error("PlaylistRouter PUT /:id/program:", err);
+    res.status(500).json({ error: "Sendeplan konnte nicht gespeichert werden." });
   }
 });
 
@@ -55,6 +75,10 @@ router.put("/:id", async (req, res) => {
       return res.status(400).json({ error: "No fields to update" });
     if (err.message === "INVALID_URL")
       return res.status(400).json({ error: "Invalid URL format" });
+    if (err.message === "SPOTIFY_UNSUPPORTED")
+      return res.status(400).json({ error: "Spotify-Playlists werden für die Radioausspielung nicht unterstützt." });
+    if (err.message === "MAIN_MUST_BE_ACTIVE")
+      return res.status(409).json({ error: "Die Hauptplaylist muss aktiv bleiben. Wähle zuerst eine andere Hauptplaylist." });
     console.error("PlaylistRouter PUT /:id:", err);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -82,6 +106,10 @@ router.post("/sync", async (req, res) => {
     const json = await response.json();
     if (response.status === 409) {
       return res.status(409).json({ status: "already_running", step: json.step });
+    }
+    if (!response.ok) {
+      console.error("PlaylistRouter POST /sync: Downloader returned", response.status, json);
+      return res.status(502).json({ error: "Downloader konnte die Synchronisierung nicht starten." });
     }
     return res.status(202).json({ status: "started" });
   } catch (err) {

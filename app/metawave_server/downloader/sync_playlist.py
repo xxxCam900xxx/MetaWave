@@ -17,6 +17,7 @@ import os
 import sys
 import json
 import subprocess
+import tempfile
 
 from db_client import fetch_active_playlists
 
@@ -24,13 +25,14 @@ SONGS_DIR = os.getenv('SONGS_DIR', '/songs')
 METADATA_FILE = os.path.join(SONGS_DIR, 'metadata.json')
 PLAYLIST_URLS_FILE = os.path.join(SONGS_DIR, 'playlist_urls.json')
 DELETED_VIDEOS_FILE = os.path.join(SONGS_DIR, 'deleted_videos.json')
+MEMBERSHIP_FILE = os.path.join(SONGS_DIR, 'playlist_membership.json')
 
 
 def load_existing_metadata():
     """Lädt bestehende metadata.json und extrahiert Video-IDs."""
     if not os.path.exists(METADATA_FILE):
         print("[sync] Keine bestehende metadata.json gefunden. Erster Download.")
-        return {}
+        raise ValueError("metadata.json hat ein ungültiges Format")
 
     try:
         with open(METADATA_FILE, 'r', encoding='utf-8') as f:
@@ -41,7 +43,7 @@ def load_existing_metadata():
 
         if not isinstance(songs_list, list):
             print(f"[sync] Warnung: metadata.json hat unerwartetes Format: {type(data)}")
-            return {}
+            raise
 
         for song in songs_list:
             if isinstance(song, dict):
@@ -86,12 +88,14 @@ def fetch_playlist_videos(playlist_url):
                 if video_id and video_url:
                     videos[video_id] = video_url
 
+        if not videos:
+            raise ValueError(f"Playlist {playlist_url} ist leer oder konnte nicht gelesen werden; Cleanup abgebrochen")
         print(f"[sync] {len(videos)} Videos in Playlist gefunden")
         return videos
     except subprocess.CalledProcessError as e:
         print(f"[sync] Fehler beim Abrufen der Playlist {playlist_url}: {e}")
         print(f"[sync] stderr: {e.stderr}")
-        return {}
+        raise RuntimeError(f"Playlist konnte nicht abgerufen werden: {playlist_url}") from e
 
 
 def fetch_all_active_playlists():
@@ -112,15 +116,30 @@ def fetch_all_active_playlists():
         print(f"  - [{pl['id']}] {pl['name']}: {pl['url']}")
 
     all_videos = {}
+    memberships = {}
     for pl in playlists:
         videos = fetch_playlist_videos(pl['url'])
+        memberships[str(pl['id'])] = list(videos)
         # Erste Playlist gewinnt bei Duplikaten
         for vid_id, vid_url in videos.items():
             if vid_id not in all_videos:
                 all_videos[vid_id] = vid_url
 
     print(f"[sync] {len(all_videos)} einzigartige Videos über alle aktiven Playlists gefunden")
-    return all_videos
+    return all_videos, memberships
+
+
+def write_memberships(memberships):
+    """Veröffentlicht Zuordnungen erst nach erfolgreichem Abruf aller Playlists."""
+    os.makedirs(SONGS_DIR, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".playlist_membership-", dir=SONGS_DIR)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(memberships, f)
+        os.replace(temporary, MEMBERSHIP_FILE)
+    finally:
+        if os.path.exists(temporary):
+            os.remove(temporary)
 
 
 def compute_diff(existing_ids, current_videos):
@@ -164,10 +183,11 @@ def main():
     print("[sync] Starte Playlist-Synchronisation (Quelle: Datenbank)...")
 
     existing_ids = load_existing_metadata()
-    current_videos = fetch_all_active_playlists()
+    current_videos, memberships = fetch_all_active_playlists()
     new_ids, deleted_ids, _ = compute_diff(existing_ids, current_videos)
     num_new = write_download_queue(new_ids, current_videos)
     write_deletion_list(deleted_ids)
+    write_memberships(memberships)
 
     # Reine Zahl für Orchestrator-Skripte
     print(f"\n{num_new}")

@@ -46,4 +46,14 @@ CREATE TABLE IF NOT EXISTS playlists (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS playlist_program (
+  playlist_id INT PRIMARY KEY,
+  is_main BOOLEAN NULL UNIQUE,
+  start_date CHAR(5) NULL,
+  end_date CHAR(5) NULL,
+  start_time CHAR(5) NOT NULL DEFAULT '00:00',
+  end_time CHAR(5) NOT NULL DEFAULT '00:00',
+  FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+);
+
 COMMIT;

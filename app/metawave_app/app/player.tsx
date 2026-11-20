@@ -679,7 +679,13 @@ export default function PlayerScreen() {
             speakerFadeGenerationRef.current++;
             applyCurrentVolume(soundRef.current);
           }
-          else if (data?.type === "queueUpdated" && data.queue) applyQueueFromServer(Array.isArray(data.queue?.queue) ? data.queue.queue : data.queue);
+          else if (data?.type === "queueUpdated" && data.queue) {
+            const current = metaRef.current;
+            if (current && data.meta && current.filename === data.meta.filename && current.playId === data.meta.playId) {
+              setMetaAndRef({ ...current, index: data.meta.index, total: data.meta.total });
+            }
+            applyQueueFromServer(Array.isArray(data.queue?.queue) ? data.queue.queue : data.queue);
+          }
           else if (data?.type === "volumeChanged" && typeof data.volume === "number") {
             setVolumeState(Number(data.volume));
             applyCurrentVolume(soundRef.current);

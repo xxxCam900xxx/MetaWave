@@ -16,6 +16,7 @@ import EventEmitter from "events";
 import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import { getRadioSchedule, storeRadioSchedule } from "../database/DatabaseLogic.js";
+import { buildProgramQueue, inAnnualWindow } from "../playlist/PlaylistProgram.js";
 
 const SONGS_DIR = path.resolve("/songs");
 const METADATA_FILE = path.join(SONGS_DIR, "metadata.json");
@@ -39,6 +40,9 @@ export class RadioEngine extends EventEmitter {
     this._lastScheduleShouldPlay = null;
     this.lastQueueHash = null;
     this.cachedQueueState = null;
+    this.playlistPrograms = null;
+    this.playlistMemberships = null;
+    this._playlistProgramSignature = null;
 
     // Timer-based track advancement
     this._trackStartedAt = Date.now();
@@ -155,7 +159,7 @@ export class RadioEngine extends EventEmitter {
 
       // 2. Add new songs not yet in queue
       const inQueue = new Set(this.queue.map(s => s.filename));
-      const newSongs = data
+      const newSongs = (this.playlistPrograms ? [] : data)
         .filter(s => s?.filename && !inQueue.has(s.filename) && fs.existsSync(path.join(SONGS_DIR, s.filename)))
         .map(s => ({
           filename: s.filename,
@@ -188,6 +192,43 @@ export class RadioEngine extends EventEmitter {
     } catch (err) {
       console.error("[RadioEngine] Fehler beim Neuladen der Metadaten:", err);
     }
+  }
+
+  updatePlaylistProgram(programs, memberships, now = new Date()) {
+    if (this.speakerEpisode || this.pendingSpeaker) return false;
+    const main = programs.find(p => p.is_main && p.is_active);
+    if (!main && !this.playlistPrograms) return false;
+    const catalog = this.getCatalog();
+    const current = this.queue[this.currentIndex] || null;
+    const signature = JSON.stringify({
+      programs, memberships,
+      catalog: catalog.map(s => [s.id, s.filename]),
+      active: programs.map(p => p.start_date && p.end_date
+        ? inAnnualWindow(p, now) : false),
+    });
+    if (signature === this._playlistProgramSignature) return true;
+    let next;
+    if (main) {
+      next = buildProgramQueue(catalog, memberships, programs, current,
+        songs => this.smartShuffle(songs, current), now);
+      if (!next) return false;
+    } else {
+      next = current ? [current, ...this.smartShuffle(catalog.filter(s => s.filename !== current.filename), current)]
+        : this.smartShuffle(catalog);
+    }
+    this.playlistPrograms = main ? programs : null;
+    this.playlistMemberships = main ? memberships : null;
+    this._playlistProgramSignature = main ? signature : null;
+    const history = current ? this.queue.slice(0, this.currentIndex) : [];
+    const played = new Set(history.map(song => song.filename));
+    this.queue = [...history, ...next.filter(song => song.filename === current?.filename || !played.has(song.filename))];
+    this.currentIndex = history.length;
+    this.lastQueueHash = null;
+    this.cachedQueueState = null;
+    if (!current && next.length) this._startTrack(0);
+    else this.broadcastQueueUpdate(true);
+    console.log(`[RadioEngine] Playlist-Sendeplan aktualisiert: ${next.length} Titel`);
+    return true;
   }
 
   // ─── Queue Loading ─────────────────────────────────────────────────────────
@@ -528,7 +569,7 @@ export class RadioEngine extends EventEmitter {
       seen.add(name);
       return true;
     }).map(song => ({
-      filename: song.filename, title: song.title || song.filename, author: song.author || "",
+      id: song.id, filename: song.filename, title: song.title || song.filename, author: song.author || "",
       cover: song.cover || "", duration: song.duration || 0,
       lufs: song.lufs && typeof song.lufs.input_i === "number" ? song.lufs : null,
     }));
@@ -707,9 +748,12 @@ export class RadioEngine extends EventEmitter {
   // ─── Shuffle ───────────────────────────────────────────────────────────────
 
   shuffleQueue() {
-    this.queue = this.minArtistDistance === 0
+    const planned = this.playlistPrograms && this.playlistMemberships
+      ? buildProgramQueue(this.getCatalog(), this.playlistMemberships, this.playlistPrograms, null,
+        songs => this.smartShuffle(songs)) : null;
+    this.queue = planned || (this.minArtistDistance === 0
       ? this._fisherYates([...this.queue])
-      : this.smartShuffle(this.queue);
+      : this.smartShuffle(this.queue));
     this.lastQueueHash = null;
     this.cachedQueueState = null;
     this._startTrack(0);
@@ -760,8 +804,11 @@ export class RadioEngine extends EventEmitter {
     }
   }
 
-  broadcastQueueUpdate() {
-    const payload = JSON.stringify({ type: "queueUpdated", queue: this.getQueueState() });
+  broadcastQueueUpdate(includeMeta = false) {
+    const payload = JSON.stringify({
+      type: "queueUpdated", queue: this.getQueueState(),
+      ...(includeMeta ? { meta: this.getMeta() } : {}),
+    });
     for (const ws of this.wsClients) {
       if (ws.readyState === WebSocket.OPEN) ws.send(payload);
     }

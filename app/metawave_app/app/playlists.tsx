@@ -23,6 +23,11 @@ interface Playlist {
   name: string;
   url: string;
   is_active: boolean | number;
+  is_main: boolean | number;
+  start_date: string | null;
+  end_date: string | null;
+  start_time: string;
+  end_time: string;
 }
 
 interface SyncStatus {
@@ -43,11 +48,18 @@ export default function PlaylistsScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newUrl, setNewUrl] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [startDate, setStartDate] = useState("11-25");
+  const [endDate, setEndDate] = useState("12-26");
+  const [startTime, setStartTime] = useState("00:00");
+  const [endTime, setEndTime] = useState("00:00");
 
   // Sync state
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [syncTriggering, setSyncTriggering] = useState(false);
   const syncPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -67,14 +79,15 @@ export default function PlaylistsScreen() {
       if (res.ok) {
         const json: SyncStatus = await res.json();
         setSyncStatus(json);
+        setSyncError(null);
         // Stop polling when no longer running
         if (!json.running && syncPollRef.current) {
           clearInterval(syncPollRef.current);
           syncPollRef.current = null;
         }
-      }
+      } else setSyncError("Downloader-Status konnte nicht geladen werden.");
     } catch {
-      // non-fatal
+      setSyncError("Downloader-Status konnte nicht geladen werden.");
     }
   }, []);
 
@@ -95,14 +108,14 @@ export default function PlaylistsScreen() {
         // Already running — just start polling
       } else if (!res.ok) {
         const json = await res.json();
-        Alert.alert("Fehler", json.error ?? "Sync konnte nicht gestartet werden.");
+        showError(json.error ?? "Sync konnte nicht gestartet werden.");
         return;
       }
       // Start polling for status updates
       await fetchSyncStatus();
       startSyncPolling();
     } catch {
-      Alert.alert("Fehler", "Verbindung zum Server fehlgeschlagen.");
+      showError("Verbindung zum Server fehlgeschlagen.");
     } finally {
       setSyncTriggering(false);
     }
@@ -114,6 +127,10 @@ export default function PlaylistsScreen() {
       if (syncPollRef.current) clearInterval(syncPollRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (syncStatus?.running) startSyncPolling();
+  }, [syncStatus?.running, startSyncPolling]);
 
   const loadPlaylists = useCallback(async () => {
     if (!tokenRef.current) return;
@@ -127,12 +144,14 @@ export default function PlaylistsScreen() {
           router.replace("/");
           return;
         }
+        setLoadError("Playlists konnten nicht geladen werden. Serverprotokoll prüfen.");
         return;
       }
       const json = await res.json();
       setPlaylists(json.playlists ?? []);
+      setLoadError(null);
     } catch {
-      // ignore
+      setLoadError("Verbindung zum Server fehlgeschlagen.");
     }
   }, [router]);
 
@@ -176,14 +195,14 @@ export default function PlaylistsScreen() {
       });
       const json = await res.json();
       if (!res.ok) {
-        Alert.alert("Fehler", json.error ?? "Playlist konnte nicht hinzugefügt werden.");
+        showError(json.error ?? "Playlist konnte nicht hinzugefügt werden.");
         return;
       }
       setNewName("");
       setNewUrl("");
       await loadPlaylists();
     } catch {
-      Alert.alert("Fehler", "Verbindung zum Server fehlgeschlagen.");
+      showError("Verbindung zum Server fehlgeschlagen.");
     } finally {
       setSaving(false);
     }
@@ -210,7 +229,8 @@ export default function PlaylistsScreen() {
         setPlaylists((prev) =>
           prev.map((p) => (p.id === playlist.id ? { ...p, is_active: playlist.is_active } : p))
         );
-        Alert.alert("Fehler", "Status konnte nicht geändert werden.");
+        const json = await res.json();
+        showError(json.error ?? "Status konnte nicht geändert werden.");
       }
     } catch {
       setPlaylists((prev) =>
@@ -218,6 +238,46 @@ export default function PlaylistsScreen() {
       );
       Alert.alert("Fehler", "Verbindung zum Server fehlgeschlagen.");
     }
+  };
+
+  const showError = (message: string) => {
+    if (Platform.OS === "web") window.alert(message);
+    else Alert.alert("Fehler", message);
+  };
+
+  const saveProgram = async (playlist: Playlist, main: boolean) => {
+    if (!tokenRef.current || saving) return;
+    setSaving(true);
+    try {
+      const body = main ? { is_main: true } : {
+        is_main: false, start_date: startDate, end_date: endDate,
+        start_time: startTime, end_time: endTime,
+      };
+      const res = await fetch(`${API_BASE}/playlist/${playlist.id}/program`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const json = await res.json();
+        showError(json.error ?? "Sendeplan konnte nicht gespeichert werden.");
+        return;
+      }
+      setEditingId(null);
+      await loadPlaylists();
+    } catch {
+      showError("Verbindung zum Server fehlgeschlagen.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const editProgram = (playlist: Playlist) => {
+    setStartDate(playlist.start_date || "11-25");
+    setEndDate(playlist.end_date || "12-26");
+    setStartTime(playlist.start_time || "00:00");
+    setEndTime(playlist.end_time || "00:00");
+    setEditingId(playlist.id);
   };
 
   const handleDelete = async (playlist: Playlist) => {
@@ -295,12 +355,15 @@ export default function PlaylistsScreen() {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.sectionTitle}>Playlist Manager</Text>
+        {loadError && <Text style={styles.errorText}>{loadError}</Text>}
 
         {/* Info box */}
         <View style={styles.infoBox}>
           <Text style={styles.infoText}>
-            Aktive Playlists werden beim nächsten monatlichen Downloader-Lauf synchronisiert.
-            Inaktive Playlists werden ignoriert.
+            Wähle eine Hauptplaylist. Weitere aktive Playlists können jährlich zu einem
+            bestimmten Zeitraum beigemischt werden. Nach Änderungen an Playlists bitte
+            synchronisieren; Zeiten gelten in der Schweiz. Spotify wird für die
+            Radioausspielung nicht unterstützt.
           </Text>
         </View>
 
@@ -325,6 +388,7 @@ export default function PlaylistsScreen() {
           </View>
 
           {/* Status row */}
+          {syncError && <Text style={styles.errorText}>{syncError}</Text>}
           {syncStatus && (
             <View style={styles.syncStatusRow}>
               <View style={[
@@ -406,7 +470,7 @@ export default function PlaylistsScreen() {
         </View>
 
         {/* Playlist list */}
-        {playlists.length === 0 ? (
+        {loadError ? null : playlists.length === 0 ? (
           <Text style={styles.emptyText}>
             Noch keine Playlists vorhanden.{"\n"}
             Füge oben eine YouTube Playlist URL hinzu.
@@ -419,35 +483,71 @@ export default function PlaylistsScreen() {
                 key={pl.id}
                 style={[styles.playlistCard, !isActive && styles.playlistCardInactive]}
               >
-                <View style={styles.playlistInfo}>
-                  <Text style={styles.playlistName} numberOfLines={1}>{pl.name}</Text>
-                  <Text style={styles.playlistUrl} numberOfLines={1}>{pl.url}</Text>
-                  <Text
-                    style={[
-                      styles.playlistStatus,
-                      isActive ? styles.playlistStatusActive : styles.playlistStatusInactive,
-                    ]}
-                  >
-                    {isActive ? "Aktiv" : "Inaktiv"}
-                  </Text>
+                <View style={styles.playlistCardHeader}>
+                  <View style={styles.playlistInfo}>
+                    <Text style={styles.playlistName} numberOfLines={1}>{pl.name}</Text>
+                    <Text style={styles.playlistUrl} numberOfLines={1}>{pl.url}</Text>
+                    <Text
+                      style={[
+                        styles.playlistStatus,
+                        isActive ? styles.playlistStatusActive : styles.playlistStatusInactive,
+                      ]}
+                    >
+                      {isActive ? "Aktiv" : "Inaktiv"} · {pl.is_main ? "Hauptplaylist" :
+                        pl.start_date ? `Jährlich ${pl.start_date} – ${pl.end_date} · täglich ${pl.start_time} – ${pl.end_time}` : "Kein Zeitraum"}
+                    </Text>
+                    {!pl.is_main && (
+                      <View style={styles.programActions}>
+                        <TouchableOpacity disabled={saving} onPress={() => saveProgram(pl, true)}>
+                          <Text style={styles.programLink}>Als Hauptplaylist wählen</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity disabled={saving} onPress={() => editProgram(pl)}>
+                          <Text style={styles.programLink}>Zeitraum einstellen</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                  <View style={styles.playlistActions}>
+                    <Switch
+                      value={isActive}
+                      onValueChange={() => handleToggleActive(pl)}
+                      disabled={saving || Boolean(pl.is_main)}
+                      trackColor={{ false: "#3a3a3a", true: "#4CAF50" }}
+                      thumbColor={isActive ? "#ffffff" : "#dddddd"}
+                      ios_backgroundColor="#3a3a3a"
+                    />
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      onPress={() => handleDelete(pl)}
+                      disabled={saving}
+                    >
+                      <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
+                    </TouchableOpacity>
+                  </View>
                 </View>
-                <View style={styles.playlistActions}>
-                  <Switch
-                    value={isActive}
-                    onValueChange={() => handleToggleActive(pl)}
-                    disabled={saving}
-                    trackColor={{ false: "#3a3a3a", true: "#4CAF50" }}
-                    thumbColor={isActive ? "#ffffff" : "#dddddd"}
-                    ios_backgroundColor="#3a3a3a"
-                  />
-                  <TouchableOpacity
-                    style={styles.deleteButton}
-                    onPress={() => handleDelete(pl)}
-                    disabled={saving}
-                  >
-                    <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
-                  </TouchableOpacity>
-                </View>
+                {editingId === pl.id && (
+                  <View style={styles.programEditor}>
+                    <Text style={styles.programHint}>Jährlich vom / bis zum Datum (MM-TT, inklusive)</Text>
+                    <View style={styles.programRow}>
+                      <TextInput style={[styles.input, styles.programInput]} value={startDate} onChangeText={setStartDate} placeholder="11-25" placeholderTextColor="#777" />
+                      <TextInput style={[styles.input, styles.programInput]} value={endDate} onChangeText={setEndDate} placeholder="12-26" placeholderTextColor="#777" />
+                    </View>
+                    <Text style={styles.programHint}>Täglich von / bis (HH:MM; gleiche Zeit = ganztägig)</Text>
+                    <View style={styles.programRow}>
+                      <TextInput style={[styles.input, styles.programInput]} value={startTime} onChangeText={setStartTime} placeholder="00:00" placeholderTextColor="#777" />
+                      <TextInput style={[styles.input, styles.programInput]} value={endTime} onChangeText={setEndTime} placeholder="00:00" placeholderTextColor="#777" />
+                    </View>
+                    <Text style={styles.programHint}>Bei genügend Titeln stammt etwa jeder vierte aus einer aktiven Saisonplaylist.</Text>
+                    <View style={styles.programActions}>
+                      <TouchableOpacity disabled={saving} onPress={() => saveProgram(pl, false)}>
+                        <Text style={styles.programLink}>Speichern</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setEditingId(null)}>
+                        <Text style={styles.programLink}>Abbrechen</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
               </View>
             );
           })

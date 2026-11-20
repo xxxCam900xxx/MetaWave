@@ -65,6 +65,51 @@ test("prepared broadcast waits for the song to finish and plays the announced ne
   assert.equal(radio.getMeta().filename, "next.mp3");
 });
 
+test("playlist changes preserve current playback and defer during a speaker handoff", () => {
+  resetRadio();
+  radio.queue.unshift({ filename: "already-played.mp3", duration: 60 });
+  radio.currentIndex = 1;
+  const originalCatalog = radio.getCatalog;
+  radio.getCatalog = () => [
+    { id: "a", filename: "music.mp3", duration: 60 },
+    { id: "b", filename: "next.mp3", duration: 60 },
+    { id: "c", filename: "holiday.mp3", duration: 60 },
+  ];
+  const programs = [
+    { id: 1, is_main: 1, is_active: 1 },
+    { id: 2, is_main: 0, is_active: 1, start_date: "11-01", start_time: "00:00", end_date: "01-01", end_time: "00:00" },
+  ];
+  const membership = { 1: ["a", "b"], 2: ["c"] };
+  const now = new Date("2026-12-01T12:00:00Z");
+  const started = radio._trackStartedAt;
+  const updates = [];
+  const client = { readyState: 1, send: payload => updates.push(JSON.parse(payload)) };
+  radio.wsClients.add(client);
+  try {
+    radio.pendingSpeaker = { prepared: null };
+    assert.equal(radio.updatePlaylistProgram(programs, membership, now), false);
+    assert.equal(radio.queue.length, 3);
+    radio.pendingSpeaker = null;
+    assert.equal(radio.updatePlaylistProgram(programs, membership, now), true);
+    assert.equal(radio.getMeta().filename, "music.mp3");
+    assert.equal(radio.currentIndex, 1);
+    assert.equal(radio._trackStartedAt, started);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].type, "queueUpdated");
+    assert.equal(updates[0].meta.index, 1);
+    assert.deepEqual(radio.queue.map(song => song.filename), ["already-played.mp3", "music.mp3", "next.mp3", "holiday.mp3"]);
+    radio.updatePlaylistProgram(programs, membership, new Date("2027-02-01T12:00:00Z"));
+    assert.deepEqual(radio.queue.map(song => song.filename), ["already-played.mp3", "music.mp3", "next.mp3"]);
+  } finally {
+    radio.getCatalog = originalCatalog;
+    radio.playlistPrograms = null;
+    radio.playlistMemberships = null;
+    radio._playlistProgramSignature = null;
+    radio.pendingSpeaker = null;
+    radio.wsClients.delete(client);
+  }
+});
+
 test("changed queue invalidates old song announcements and waits for another song end", () => {
   resetRadio();
   radio.queue.push({ filename: "third.mp3", title: "Third", duration: 60 });

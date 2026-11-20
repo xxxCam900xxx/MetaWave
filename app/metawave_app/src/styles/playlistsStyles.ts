@@ -107,16 +107,23 @@ export const playlistsStyles = StyleSheet.create<any>({
     marginTop: 24,
     lineHeight: 22,
   },
+  errorText: {
+    color: "#FF6B6B",
+    fontSize: 13,
+    marginBottom: 10,
+  },
   playlistCard: {
     backgroundColor: colors.backgroundCard,
     borderRadius: 10,
     padding: 14,
     marginBottom: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+  },
+  playlistCardHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    borderLeftWidth: 3,
-    borderLeftColor: colors.primary,
   },
   playlistCardInactive: {
     borderLeftColor: colors.textMuted,
@@ -152,6 +159,33 @@ export const playlistsStyles = StyleSheet.create<any>({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+  },
+  programActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 14,
+    marginTop: 10,
+  },
+  programLink: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  programEditor: {
+    marginTop: 12,
+  },
+  programHint: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    marginBottom: 6,
+  },
+  programRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  programInput: {
+    flex: 1,
+    minWidth: 0,
   },
   deleteButton: {
     padding: 6,
