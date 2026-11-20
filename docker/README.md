@@ -1,5 +1,9 @@
 # Wie startet man das Projekt mit Docker?
 
+Für den Einstieg unter Windows: **[Einfache Schritt-für-Schritt-Anleitung](QUICKSTART.md)**.
+Sie enthält die aktuellen Konfigurationsdateien, den ersten Start und Hinweise
+zur Datensicherung. Die folgenden Abschnitte enthalten zusätzliche Werkzeuge.
+
 - [Wie startet man das Projekt mit Docker?](#wie-startet-man-das-projekt-mit-docker)
   - [Step 0 | Docker installieren](#step-0--docker-installieren)
   - [Step 1 | Enviroment Files erstellen](#step-1--enviroment-files-erstellen)
@@ -12,7 +16,6 @@
       - [Manuelle Docker-Befehle](#manuelle-docker-befehle)
   - [Schnelltests](#schnelltests)
     - [Radio-API testen:](#radio-api-testen)
-    - [Notification Job manuell auslösen:](#notification-job-manuell-auslösen)
     - [Metadata \& LUFS-Daten prüfen:](#metadata--lufs-daten-prüfen)
     - [Container-Logs ansehen:](#container-logs-ansehen)
   - [Step 3 | Start Coding!](#step-3--start-coding)
@@ -45,78 +48,9 @@ Der Speaker-Dienst und sein End-to-End-Test sind in der
 
 ## Step 1 | Enviroment Files erstellen
 
-Erstellen Sie im Verzeichnis `/docker/metawave_app` eine `.env` Datei mit den folgenden Variablen:
-
-```bash
-# Für die lokale Entwicklung können Sie localhost verwenden.
-API_DOMAIN_URL=http://localhost:8000
-```
-
-Danach erstellen Sie im Verzeichnis `/docker/metawave_server` eine `.env` Datei mit den folgenden Variablen (an Ihre Umgebung anpassen):
-
-```env
-# Schauen Sie, dass die Playlist öffentlich zugänglich ist!
-PLAYLIST_URL=https://www.youtube.com/playlist?list=PLYfrfvAfnsDmHAS1wU6v-NC5e5iFxmgmH
-
-# --- Required server env vars ---
-# API port (radio/auth service)
-PORT=8000
-
-# Database connection used by the server (matches docker/metawave_database/.env)
-DB_HOST=database
-DB_PORT=3306
-DB_USER=metawave_user
-DB_PASS=strongpassword
-DB_NAME=database_metawave
-
-# Auth secret for JWTs
-AUTH_SECRET=<random_secret>
-AUTH_TOKEN_EXPIRY=3600
-
-# Standard notification text
-STANDARD_NOTIFICATION_MESSAGE=Neuer WaveToken wurde generiert. Verwende ihn zum Login.
-
-# --- Downloader configuration (optional fein-tuning) ---
-# Number of concurrent downloads per batch
-BATCH_SIZE=10
-# Seconds to wait between batches
-BATCH_DELAY_SECONDS=60
-# Seconds to wait between individual video downloads
-VIDEO_DELAY_SECONDS=5
-# Retry/backoff settings
-MAX_RETRIES=5
-INITIAL_DELAY_SECONDS=60
-# Optional: limit playlist items for testing, e.g. "1-10" or "1,3,5"
-#PLAYLIST_ITEMS=
-
-# --- YouTube Cookies (optional, für private/altersbeschränkte Videos) ---
-# Pfad zur YouTube Cookies-Datei im Container
-# Wenn gesetzt, wird yt-dlp authentifiziert (siehe GET_YT_COOKIES.md)
-#YT_COOKIES=/cookies/www.youtube.com_cookies.txt
-
-# --- E-Mail (notifications) configuration ---
-# (Optional, wenn E-Mail-Benachrichtigungen verwendet werden)
-SMTP_HOST=mail.hostpoint.ch
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=<dein-hostpoint-login>
-SMTP_PASS=<dein-hostpoint-passwort>
-
-# Absender-Adresse für Benachrichtigungs-Mails
-EMAIL_FROM="MetaWave <no-reply@deine-domain.tld>"
-
-# Optional: Betreffzeile für E-Mail-Notifications
-EMAIL_NOTIFICATION_SUBJECT=Dein neuer MetaWave WaveToken
-```
-
-Danach erstellen Sie im Verzeichnis `/docker/metawave_database` eine `.env` Datei. Diese muss zu den `DB_*`-Werten oben passen:
-
-```env
-MARIADB_ROOT_PASSWORD=supersecret
-MARIADB_DATABASE=database_metawave
-MARIADB_USER=metawave_user
-MARIADB_PASSWORD=strongpassword
-```
+Die drei benötigten `.env`-Dateien und der Cookie-Platzhalter für den Build
+werden im [Quickstart](QUICKSTART.md#2-konfigurationsdateien-erstellen) erklärt.
+Vorhandene Dateien nicht überschreiben.
 
 ## Step 2 | Docker Container starten
 
@@ -127,8 +61,15 @@ docker compose -f compose.enviroment.yaml up --build
 ```
 
 Damit werden Datenbank, Server, Downloader und Client gemäss der inkludierten Dateien gestartet.
+Ausserdem werden Ollama und der Speaker gestartet. Für die Voraussetzungen und
+den Cookie-Platzhalter beim ersten Build siehe [Quickstart](QUICKSTART.md).
 
 ### Downloader in 300er-Chunks mit Orchestrator ausführen
+
+Die normale Synchronisierung erfolgt heute über den Playlist Manager in der
+App. Die folgenden manuellen Werkzeuge sind ältere Spezialverfahren; sie
+arbeiten teilweise mit `PLAYLIST_URL` statt der Playlist-Auswahl in der
+Datenbank und können Dateien bereinigen. Vor ihrer Verwendung Daten sichern.
 
 Wenn deine Playlist sehr gross ist, kannst du die Downloads mit einem Orchestrator-Skript auf mehrere Downloader-Container aufteilen. Jeder Container lädt z.B. 300 Videos (Chunk) herunter, schreibt die MP3s + `.info.json` ins gemeinsame Volume `songs`, und am Ende wird aus allen vorhandenen Dateien eine gemeinsame `metadata.json` erzeugt.
 
@@ -156,7 +97,7 @@ Wenn deine Playlist sehr gross ist, kannst du die Downloads mit einem Orchestrat
 3. Starte den Orchestrator (Standard: 300er Chunks, max. 3 parallele Downloader):
 
   ```powershell
-  .\run_downloader_chunks.ps1
+  .\run_downloader_chunks_windows.ps1
   ```
 
   **Der Orchestrator ist intelligent:**
@@ -171,17 +112,17 @@ Wenn deine Playlist sehr gross ist, kannst du die Downloads mit einem Orchestrat
   **LUFS überspringen:**
 
   ```powershell
-  .\run_downloader_chunks.ps1 -SkipLufs
+  .\run_downloader_chunks_windows.ps1 -SkipLufs
   ```
 
   Optional kannst du Chunk-Größe, Parallelität und LUFS-Modus anpassen:
 
   ```powershell
   # Custom Chunks + Force LUFS Re-Analyse
-  .\run_downloader_chunks.ps1 -ChunkSize 200 -MaxParallel 3 -ForceLufs
+  .\run_downloader_chunks_windows.ps1 -ChunkSize 200 -MaxParallel 3 -ForceLufs
 
   # Mit YouTube Cookies (für private/altersbeschränkte Videos)
-  .\run_downloader_chunks.ps1 -CookiesFile ".\www.youtube.com_cookies.txt"
+  .\run_downloader_chunks_windows.ps1 -CookiesFile ".\www.youtube.com_cookies.txt"
   ```
 
   **Ablauf:**
@@ -209,6 +150,8 @@ Wenn deine Playlist sehr gross ist, kannst du die Downloads mit einem Orchestrat
 #### Manuelle Variante (nur bei Bedarf)
 
 Alternativ kannst du weiterhin manuell mit `PLAYLIST_ITEMS` und den Flags von `update_playlist.py` arbeiten, z.B. um einzelne Bereiche gezielt neu zu laden.
+Diese direkte Variante benötigt zusätzlich `PLAYLIST_URL` in der
+Server-`.env`; sie nutzt nicht die im Playlist Manager gewählten URLs.
 
 1. Wechsle in das `docker` Verzeichnis:
 
@@ -241,7 +184,7 @@ Alternativ kannst du weiterhin manuell mit `PLAYLIST_ITEMS` und den Flags von `u
 
 Nach dem Download (egal ob mit Orchestrator oder manuell) solltest du die **EBU R128 / LUFS Analyse** durchführen, damit der Monotone Equalizer optimal funktioniert.
 
-> **💡 Hinweis:** Der Orchestrator (`run_downloader_chunks.ps1` / `.sh`) führt die LUFS-Analyse **automatisch parallelisiert** am Ende aus. Die LUFS-Analyse wird auf mehrere Container aufgeteilt (gleicher `ChunkSize` und `MaxParallel` Parameter wie Downloads), um die Verarbeitung zu beschleunigen.
+> **💡 Hinweis:** Der Orchestrator (`run_downloader_chunks_windows.ps1` / `.sh`) führt die LUFS-Analyse **automatisch parallelisiert** am Ende aus. Die LUFS-Analyse wird auf mehrere Container aufgeteilt (gleicher `ChunkSize` und `MaxParallel` Parameter wie Downloads), um die Verarbeitung zu beschleunigen.
 
 > **⚡ Performance:** Bei 900 Songs mit 6 parallelen Containern dauert die LUFS-Analyse nur noch ~5-12 Minuten statt 30-75 Minuten sequenziell!
 
@@ -316,17 +259,8 @@ Der Monotone Equalizer nutzt diese LUFS-Werte für professionelle Broadcast-Qual
 ### Radio-API testen:
 
 ```powershell
-# Health Check
-curl http://localhost:8000
-
-# Settings abrufen (benötigt Authentication Token)
-curl http://localhost:8000/api/radio/settings -H "Authorization: Bearer <TOKEN>"
-```
-
-### Notification Job manuell auslösen:
-
-```powershell
-curl -X GET http://localhost:8000/api/notification/run-job
+# Swagger-Oberfläche öffnen
+Start-Process http://localhost:8000/swagger
 ```
 
 ### Metadata & LUFS-Daten prüfen:

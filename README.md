@@ -38,40 +38,16 @@ MetaWave/
 
 ## Schnellstart
 
-### Voraussetzungen
-- Docker & Docker Compose
-- Node.js 18+ (für lokale Entwicklung)
-- Expo CLI (für Mobile App)
-- YouTube API Cookies (für Downloads)
+Docker Desktop starten und im Projekt-Hauptordner in PowerShell ausführen:
 
-### Mit Docker starten
+```powershell
+docker compose -f .\docker\compose.enviroment.yaml up -d
+```
 
-1. **Repository klonen**
-   ```bash
-   git clone <repository-url>
-   cd MetaWave
-   ```
-
-2. **Environment Setup**
-   ```bash
-   # Folgen Sie der Anleitung in docker/README.md
-   cd docker
-   # Erstellen Sie die erforderlichen .env Dateien
-   ```
-
-3. **Container starten**
-   ```bash
-   docker compose -f docker/compose.enviroment.yaml up -d
-   ```
-
-4. **Client starten**
-   ```bash
-   cd app/metawave_app
-   npm install
-   npm start
-   ```
-
-Detaillierte Setup-Anweisungen finden Sie in [docker/README.md](docker/README.md).
+Anschliessend [http://localhost](http://localhost) öffnen. Für den ersten Start
+mit Konfiguration und Image-Build siehe die
+[einfache Docker-Anleitung](docker/QUICKSTART.md). Der Client läuft bereits
+im Container; ein zusätzliches `npm start` ist dafür nicht nötig.
 
 ## Architektur & Infrastruktur
 
